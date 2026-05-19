@@ -1,7 +1,9 @@
-export function WhatsappButton() {
+export function WhatsappButton({ telefono }: { telefono?: string }) {
+  if (!telefono) return null;
+  const url = `https://wa.me/${telefono}?text=${encodeURIComponent("Hola CasaAmor, te consulto...")}`;
   return (
     <a
-      href="https://wa.me/5491100000000?text=Hola%20CasaAmor%2C%20te%20consulto..."
+      href={url}
       target="_blank"
       rel="noopener noreferrer"
       aria-label="Consultar por WhatsApp"

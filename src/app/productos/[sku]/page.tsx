@@ -26,7 +26,7 @@ export default async function ProductoDetallePage({ params }: { params: Params }
       </Link>
 
       <div className="rounded-2xl border-2 border-dashed border-burgundy/20 p-12 text-center bg-cream/30">
-        <p className="text-burgundy font-serif text-xl mb-2">
+        <p className="text-burgundy font-heading text-xl mb-2">
           Producto {sku}
         </p>
         <p className="text-ink/60">

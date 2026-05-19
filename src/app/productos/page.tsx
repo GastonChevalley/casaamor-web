@@ -12,7 +12,7 @@ export default function ProductosPage() {
         <span className="text-xs uppercase tracking-[0.3em] text-rose font-semibold">
           Catálogo
         </span>
-        <h1 className="font-serif text-4xl sm:text-5xl text-burgundy mt-2">
+        <h1 className="font-heading text-4xl sm:text-5xl text-burgundy mt-2">
           Nuestros productos
         </h1>
         <p className="mt-4 text-ink/70 max-w-2xl">
@@ -22,7 +22,7 @@ export default function ProductosPage() {
       </header>
 
       <div className="rounded-2xl border-2 border-dashed border-burgundy/20 p-12 text-center bg-cream/30">
-        <p className="text-burgundy font-serif text-xl mb-2">En construcción 🌸</p>
+        <p className="text-burgundy font-heading text-xl mb-2">En construcción 🌸</p>
         <p className="text-ink/60">
           El catálogo se va a conectar con el sistema interno de CasaAmor en la próxima fase.
         </p>
