@@ -1,0 +1,42 @@
+@import "tailwindcss";
+
+:root {
+  /* Paleta CasaAmor (extraída del logo) */
+  --brand-burgundy: #7c2440;
+  --brand-burgundy-dark: #5a1a2e;
+  --brand-rose: #b24967;
+  --brand-gold: #c89e4b;
+  --brand-gold-dark: #a87d2e;
+  --brand-cream: #f0e6d2;
+  --brand-cream-light: #fff8e9;
+  --brand-ink: #1f2937;
+
+  --background: var(--brand-cream-light);
+  --foreground: var(--brand-ink);
+}
+
+@theme inline {
+  --color-background: var(--background);
+  --color-foreground: var(--foreground);
+  --color-burgundy: var(--brand-burgundy);
+  --color-burgundy-dark: var(--brand-burgundy-dark);
+  --color-rose: var(--brand-rose);
+  --color-gold: var(--brand-gold);
+  --color-gold-dark: var(--brand-gold-dark);
+  --color-cream: var(--brand-cream);
+  --color-cream-light: var(--brand-cream-light);
+  --color-ink: var(--brand-ink);
+  --font-sans: var(--font-geist-sans);
+  --font-serif: var(--font-fraunces);
+  --font-mono: var(--font-geist-mono);
+}
+
+body {
+  background: var(--background);
+  color: var(--foreground);
+  font-family: var(--font-sans), Arial, Helvetica, sans-serif;
+}
+
+h1, h2, h3, .font-serif {
+  font-family: var(--font-serif), Georgia, serif;
+}
