@@ -212,8 +212,10 @@ async function fetchApi<T>(api: string, params: Record<string, string> = {}): Pr
   Object.entries(params).forEach(([k, v]) => url.searchParams.set(k, v));
 
   try {
+    // Revalidate alto (1 hora) porque la invalidación REAL la hace el webhook
+    // /api/revalidate que dispara Apps Script onEdit. El TTL es solo safety net.
     const res = await fetch(url.toString(), {
-      next: { revalidate: 5 },
+      next: { revalidate: 3600, tags: ["apps-script-api"] },
       headers: { Accept: "application/json" },
     });
     if (!res.ok) return null;
