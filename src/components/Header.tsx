@@ -1,10 +1,11 @@
 import Link from "next/link";
 import Image from "next/image";
 import type { ConfigWeb, MenuItem } from "../lib/api";
+import { safeUrl } from "../lib/sanitize";
 
 export function Header({ config, menu }: { config: ConfigWeb; menu: MenuItem[] }) {
   const titulo = config.site_title || "CasaAmor";
-  const logoUrl = config.logo_url || "/logo-512.png";
+  const logoUrl = safeUrl(config.logo_url) || "/logo-512.png";
   return (
     <header className="sticky top-0 z-20 bg-burgundy text-cream-light shadow-md">
       <div className="max-w-6xl mx-auto flex items-center justify-between gap-4 px-4 py-3 sm:px-6">
@@ -25,17 +26,21 @@ export function Header({ config, menu }: { config: ConfigWeb; menu: MenuItem[] }
         </Link>
 
         <nav className="flex items-center gap-1 sm:gap-4 text-sm">
-          {menu.map((item) => (
-            <Link
-              key={`${item.orden}-${item.href}`}
-              href={item.href}
-              target={item.target || undefined}
-              rel={item.target === "_blank" ? "noopener noreferrer" : undefined}
-              className="px-3 py-1.5 rounded hover:bg-burgundy-dark transition-colors"
-            >
-              {item.label}
-            </Link>
-          ))}
+          {menu.map((item) => {
+            const href = safeUrl(item.href);
+            if (!href) return null;
+            return (
+              <Link
+                key={`${item.orden}-${href}`}
+                href={href}
+                target={item.target || undefined}
+                rel={item.target === "_blank" ? "noopener noreferrer" : undefined}
+                className="px-3 py-1.5 rounded hover:bg-burgundy-dark transition-colors"
+              >
+                {item.label}
+              </Link>
+            );
+          })}
         </nav>
       </div>
     </header>

@@ -1,4 +1,5 @@
 import Link from "next/link";
+import { safeUrl } from "../../lib/sanitize";
 
 export type HeroBlockConfig = {
   titulo?: string;
@@ -31,13 +32,14 @@ export function HeroBlock({
 
   const align = config.alineacion === "center" ? "sm:text-center sm:items-center" : "";
 
-  // Resolver link especial "whatsapp"
+  // Resolver link especial "whatsapp" → wa.me real. Resto: sanitizar como URL.
   const resolveLink = (link?: string) => {
     if (!link) return null;
     if (link === "whatsapp" && whatsapp) {
       return `https://wa.me/${whatsapp}`;
     }
-    return link;
+    const safe = safeUrl(link, { permitirEspecial: false });
+    return safe || null;
   };
   const ctaHref = resolveLink(config.ctaLink);
   const ctaSecHref = resolveLink(config.ctaSecLink);
@@ -45,11 +47,18 @@ export function HeroBlock({
   return (
     <section
       className={`relative overflow-hidden ${bgClass}`}
-      style={config.fondoImagenUrl ? {
-        backgroundImage: `url(${config.fondoImagenUrl})`,
-        backgroundSize: "cover",
-        backgroundPosition: "center",
-      } : undefined}
+      style={(() => {
+        const safeBgUrl = safeUrl(config.fondoImagenUrl);
+        if (!safeBgUrl) return undefined;
+        // CSS.escape no existe en SSR de forma garantizada; reemplazamos ",
+        // (, ), \ y newlines para evitar romper la propiedad CSS.
+        const safeForCss = safeBgUrl.replace(/["'()\\\n\r]/g, "");
+        return {
+          backgroundImage: `url("${safeForCss}")`,
+          backgroundSize: "cover",
+          backgroundPosition: "center",
+        };
+      })()}
     >
       <div className="max-w-6xl mx-auto px-6 sm:px-10 py-20 sm:py-32 grid gap-10 sm:grid-cols-2 sm:items-center">
         <div className={`space-y-5 sm:space-y-7 ${align}`}>

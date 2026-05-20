@@ -1,6 +1,9 @@
+import { safePhone } from "../lib/sanitize";
+
 export function WhatsappButton({ telefono }: { telefono?: string }) {
-  if (!telefono) return null;
-  const url = `https://wa.me/${telefono}?text=${encodeURIComponent("Hola CasaAmor, te consulto...")}`;
+  const phone = safePhone(telefono);
+  if (!phone) return null;
+  const url = `https://wa.me/${phone}?text=${encodeURIComponent("Hola CasaAmor, te consulto...")}`;
   return (
     <a
       href={url}

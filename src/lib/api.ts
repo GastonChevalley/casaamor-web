@@ -213,7 +213,7 @@ async function fetchApi<T>(api: string, params: Record<string, string> = {}): Pr
 
   try {
     const res = await fetch(url.toString(), {
-      next: { revalidate: 30 },
+      next: { revalidate: 5 },
       headers: { Accept: "application/json" },
     });
     if (!res.ok) return null;

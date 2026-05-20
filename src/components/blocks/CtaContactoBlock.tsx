@@ -1,4 +1,5 @@
 import Link from "next/link";
+import { safeUrl, safeHandle, safePhone } from "../../lib/sanitize";
 
 export type CtaContactoBlockConfig = {
   titulo?: string;
@@ -22,9 +23,15 @@ export function CtaContactoBlock({
   instagram?: string;
   email?: string;
 }) {
-  const showWa = config.mostrarWhatsapp !== false && whatsapp;
-  const showIg = config.mostrarInstagram !== false && instagram;
-  const showEmail = config.mostrarEmail !== false && email;
+  const waSafe = safePhone(whatsapp);
+  const igSafe = safeHandle(instagram);
+  const emailSafe =
+    email && /^[^@\s]+@[^@\s]+\.[^@\s]+$/.test(email) ? email : "";
+  const verHref = safeUrl(config.linkVer);
+
+  const showWa = config.mostrarWhatsapp !== false && waSafe;
+  const showIg = config.mostrarInstagram !== false && igSafe;
+  const showEmail = config.mostrarEmail !== false && emailSafe;
   const hayChannels = showWa || showIg || showEmail;
 
   return (
@@ -39,9 +46,9 @@ export function CtaContactoBlock({
           <p className="text-ink/80 leading-relaxed">{config.texto}</p>
         )}
 
-        {config.linkVer && (
+        {verHref && (
           <Link
-            href={config.linkVer}
+            href={verHref}
             className="mt-6 inline-block text-burgundy underline underline-offset-4 decoration-gold hover:text-gold"
           >
             {config.linkVerTexto || "Saber más"}
@@ -52,7 +59,7 @@ export function CtaContactoBlock({
           <div className="mt-8 grid gap-3 sm:grid-cols-3">
             {showWa && (
               <a
-                href={`https://wa.me/${whatsapp}`}
+                href={`https://wa.me/${waSafe}`}
                 target="_blank"
                 rel="noopener noreferrer"
                 className="rounded-2xl border border-burgundy/15 bg-white/60 p-5 hover:bg-white transition-colors"
@@ -65,22 +72,22 @@ export function CtaContactoBlock({
             )}
             {showIg && (
               <a
-                href={`https://instagram.com/${instagram}`}
+                href={`https://instagram.com/${igSafe}`}
                 target="_blank"
                 rel="noopener noreferrer"
                 className="rounded-2xl border border-burgundy/15 bg-white/60 p-5 hover:bg-white transition-colors"
               >
                 <h3 className="font-heading text-lg text-burgundy">Instagram</h3>
-                <p className="text-ink/70 text-xs mt-1">@{instagram}</p>
+                <p className="text-ink/70 text-xs mt-1">@{igSafe}</p>
               </a>
             )}
             {showEmail && (
               <a
-                href={`mailto:${email}`}
+                href={`mailto:${emailSafe}`}
                 className="rounded-2xl border border-burgundy/15 bg-white/60 p-5 hover:bg-white transition-colors"
               >
                 <h3 className="font-heading text-lg text-burgundy">Email</h3>
-                <p className="text-ink/70 text-xs mt-1 break-all">{email}</p>
+                <p className="text-ink/70 text-xs mt-1 break-all">{emailSafe}</p>
               </a>
             )}
           </div>

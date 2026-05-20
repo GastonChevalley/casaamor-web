@@ -1,5 +1,7 @@
 import Link from "next/link";
+import Image from "next/image";
 import { obtenerCatalogo, type Producto } from "../../lib/api";
+import { safeUrl } from "../../lib/sanitize";
 
 export type ProductosDestacadosBlockConfig = {
   titulo?: string;
@@ -75,18 +77,25 @@ export async function ProductosDestacadosBlock({
               className="group block rounded-2xl bg-white border border-cream hover:shadow-lg transition-shadow overflow-hidden"
             >
               <div className="aspect-square bg-cream/40 relative overflow-hidden">
-                {p.fotoUrl ? (
-                  // eslint-disable-next-line @next/next/no-img-element
-                  <img
-                    src={p.fotoUrl}
-                    alt={p.nombre}
-                    className="w-full h-full object-cover group-hover:scale-105 transition-transform"
-                  />
-                ) : (
-                  <div className="absolute inset-0 flex items-center justify-center text-cream font-heading text-3xl">
-                    {p.nombre.charAt(0)}
-                  </div>
-                )}
+                {(() => {
+                  const fotoSafe = safeUrl(p.fotoUrl);
+                  if (fotoSafe) {
+                    return (
+                      <Image
+                        src={fotoSafe}
+                        alt={p.nombre}
+                        fill
+                        sizes="(max-width: 640px) 100vw, (max-width: 1024px) 33vw, 25vw"
+                        className="object-cover group-hover:scale-105 transition-transform"
+                      />
+                    );
+                  }
+                  return (
+                    <div className="absolute inset-0 flex items-center justify-center text-cream font-heading text-3xl">
+                      {p.nombre.charAt(0)}
+                    </div>
+                  );
+                })()}
                 {p.oferta && p.descOfertaPct > 0 && (
                   <span className="absolute top-3 left-3 bg-gold text-burgundy text-xs font-bold px-2 py-1 rounded">
                     −{p.descOfertaPct}%

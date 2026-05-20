@@ -1,3 +1,5 @@
+import { renderMarkdownSeguro, safeColor } from "../../lib/sanitize";
+
 export type TextoBlockConfig = {
   titulo?: string;
   subtitulo?: string;
@@ -6,26 +8,6 @@ export type TextoBlockConfig = {
   fondoColor?: string;
 };
 
-/**
- * Renderer simple de markdown:
- *   - **bold**
- *   - _italic_
- *   - doble newline = párrafo
- */
-function renderMarkdownInline(text: string): string {
-  return text
-    .replace(/&/g, "&amp;")
-    .replace(/</g, "&lt;")
-    .replace(/>/g, "&gt;")
-    .replace(/\*\*(.+?)\*\*/g, "<strong>$1</strong>")
-    .replace(/_(.+?)_/g, "<em>$1</em>");
-}
-
-function renderMarkdown(text: string): { __html: string } {
-  const parrafos = text.split(/\n\n+/).map(p => `<p>${renderMarkdownInline(p)}</p>`);
-  return { __html: parrafos.join("") };
-}
-
 export function TextoBlock({ config }: { config: TextoBlockConfig }) {
   const align = {
     left: "text-left",
@@ -33,10 +15,12 @@ export function TextoBlock({ config }: { config: TextoBlockConfig }) {
     right: "text-right",
   }[config.alineacion || "left"];
 
+  const bgColor = safeColor(config.fondoColor);
+
   return (
     <section
       className="py-16"
-      style={config.fondoColor ? { backgroundColor: config.fondoColor } : undefined}
+      style={bgColor ? { backgroundColor: bgColor } : undefined}
     >
       <div className={`max-w-3xl mx-auto px-6 sm:px-10 ${align}`}>
         {config.subtitulo && (
@@ -52,7 +36,7 @@ export function TextoBlock({ config }: { config: TextoBlockConfig }) {
         {config.texto && (
           <div
             className="prose prose-stone max-w-none space-y-4 text-ink/85 leading-relaxed"
-            dangerouslySetInnerHTML={renderMarkdown(config.texto)}
+            dangerouslySetInnerHTML={{ __html: renderMarkdownSeguro(config.texto) }}
           />
         )}
       </div>

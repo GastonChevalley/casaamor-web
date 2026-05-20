@@ -1,12 +1,16 @@
 import Link from "next/link";
 import type { ConfigWeb, MenuItem } from "../lib/api";
+import { safeHandle, safePhone, safeUrl } from "../lib/sanitize";
 
 export function Footer({ config, menu }: { config: ConfigWeb; menu: MenuItem[] }) {
   const titulo = config.site_title || "CasaAmor";
   const tagline = config.site_tagline || "";
-  const ig = config.contacto_instagram || "";
-  const wa = config.contacto_whatsapp || "";
+  // Sanitizar TODOS los inputs del API antes de meterlos en href.
+  const ig = safeHandle(config.contacto_instagram);
+  const wa = safePhone(config.contacto_whatsapp);
   const email = config.contacto_email || "";
+  const emailHref =
+    email && /^[^@\s]+@[^@\s]+\.[^@\s]+$/.test(email) ? `mailto:${email}` : "";
   const footerTexto = config.footer_texto || "Hecho con amor 💛";
 
   return (
@@ -20,18 +24,22 @@ export function Footer({ config, menu }: { config: ConfigWeb; menu: MenuItem[] }
         <div>
           <h3 className="font-heading text-lg text-cream-light mb-2">Navegación</h3>
           <ul className="space-y-1">
-            {menu.map((item) => (
-              <li key={`f-${item.orden}-${item.href}`}>
-                <Link
-                  href={item.href}
-                  target={item.target || undefined}
-                  rel={item.target === "_blank" ? "noopener noreferrer" : undefined}
-                  className="hover:text-gold transition-colors"
-                >
-                  {item.label}
-                </Link>
-              </li>
-            ))}
+            {menu.map((item) => {
+              const href = safeUrl(item.href);
+              if (!href) return null;
+              return (
+                <li key={`f-${item.orden}-${href}`}>
+                  <Link
+                    href={href}
+                    target={item.target || undefined}
+                    rel={item.target === "_blank" ? "noopener noreferrer" : undefined}
+                    className="hover:text-gold transition-colors"
+                  >
+                    {item.label}
+                  </Link>
+                </li>
+              );
+            })}
           </ul>
         </div>
 
@@ -62,9 +70,9 @@ export function Footer({ config, menu }: { config: ConfigWeb; menu: MenuItem[] }
                 </a>
               </li>
             )}
-            {email && (
+            {emailHref && (
               <li>
-                <a href={`mailto:${email}`} className="hover:text-gold transition-colors">
+                <a href={emailHref} className="hover:text-gold transition-colors">
                   {email}
                 </a>
               </li>

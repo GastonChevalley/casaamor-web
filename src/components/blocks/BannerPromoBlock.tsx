@@ -1,4 +1,5 @@
 import Link from "next/link";
+import { safeUrl } from "../../lib/sanitize";
 
 export type BannerPromoBlockConfig = {
   texto?: string;
@@ -17,11 +18,13 @@ export function BannerPromoBlock({ config }: { config: BannerPromoBlockConfig })
     rose: "bg-rose text-cream-light",
   }[config.color || "gold"];
 
+  const ctaHref = safeUrl(config.ctaLink);
+
   return (
     <div className={`${palette} text-center py-3 px-4 text-sm font-semibold`}>
       <span>{config.texto || ""}</span>
-      {config.ctaLink && config.ctaText && (
-        <Link href={config.ctaLink} className="ml-3 underline hover:opacity-80">
+      {ctaHref && config.ctaText && (
+        <Link href={ctaHref} className="ml-3 underline hover:opacity-80">
           {config.ctaText}
         </Link>
       )}

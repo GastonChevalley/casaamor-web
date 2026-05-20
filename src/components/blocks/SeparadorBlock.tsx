@@ -1,3 +1,5 @@
+import { safeColor } from "../../lib/sanitize";
+
 export type SeparadorBlockConfig = {
   altura?: "sm" | "md" | "lg";
   color?: string;
@@ -11,8 +13,10 @@ export function SeparadorBlock({ config }: { config: SeparadorBlockConfig }) {
     lg: "py-16",
   }[config.altura || "md"];
 
+  const bgColor = safeColor(config.color);
+
   return (
-    <div className={`${height}`} style={config.color ? { backgroundColor: config.color } : undefined}>
+    <div className={`${height}`} style={bgColor ? { backgroundColor: bgColor } : undefined}>
       {config.conLinea && (
         <div className="max-w-3xl mx-auto px-6">
           <hr className="border-burgundy/15" />

@@ -9,6 +9,13 @@ import { BlockRenderer } from "../../components/BlockRenderer";
 
 type Params = Promise<{ slug?: string[] }>;
 
+/**
+ * Permitir generar rutas dinámicas que NO estaban en generateStaticParams al
+ * momento del build. Sin esto, si la dueña agrega una página nueva entre
+ * deploys, la URL daría 404 hasta el próximo build.
+ */
+export const dynamicParams = true;
+
 /** Convierte el [...slug] de Next ("[]" | ["sobre"] | ["foo", "bar"]) en un slug "/" o "/sobre" */
 function paramsASlug(slugArr?: string[]): string {
   if (!slugArr || slugArr.length === 0) return "/";
