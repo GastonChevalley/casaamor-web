@@ -10,6 +10,21 @@
 
 export type ConfigWeb = Record<string, string>;
 
+/**
+ * Helper robusto para interpretar campos "boolean-like" de la hoja ConfigWeb.
+ * Acepta: true (boolean), "true"/"TRUE", "1", "yes", "sí"/"si".
+ * Rechaza: false/null/undefined/"" / cualquier otro string.
+ *
+ * Necesario porque Apps Script puede devolver `boolean true` o `"TRUE"` string,
+ * y Google Sheets a veces normaliza `TRUE` literal a checkbox booleano.
+ */
+export function isTrueStr(v: unknown): boolean {
+  if (v === true) return true;
+  if (v === false || v === null || v === undefined) return false;
+  const s = String(v).trim().toLowerCase();
+  return s === "true" || s === "1" || s === "yes" || s === "sí" || s === "si";
+}
+
 export type MenuItem = {
   orden: number;
   label: string;
@@ -38,6 +53,20 @@ export type PageSummary = {
   enFooter: boolean;
 };
 
+export type Variante = {
+  sku: string;
+  valor: string;
+  orden: number;
+  precioEft: number;
+  precioTn: number;
+  stock: number;
+  oferta: boolean;
+  descOfertaPct: number;
+  fotoUrl?: string;
+  fotos?: string[];
+  disponible: boolean;
+};
+
 export type Producto = {
   sku: string;
   proveedor: string;
@@ -47,10 +76,40 @@ export type Producto = {
   stock: number;
   oferta: boolean;
   descOfertaPct: number;
-  fotoUrl?: string;
+  categoriaId?: string;
+  fotoUrl?: string;          // primera foto (backward-compat)
+  fotos?: string[];          // array de hasta 4 fotos (Addendum 52)
   categoria?: string;
-  descripcion?: string;
+  descripcion?: string;      // copy público largo (markdown ligero) — Addendum 60
+  medidas?: string;          // medidas/dimensiones del producto — Addendum 60
   destacado?: boolean;
+  // Variantes (Addendum 61)
+  varianteTipo?: string | null;   // "color" | "talle" | "material" | null si sin variantes
+  variantes?: Variante[];          // [] si sin variantes
+  // Card del catálogo: solo si es un grupo con N>1 variantes
+  precioEftMin?: number;
+  precioEftMax?: number;
+  variantesCount?: number;
+};
+
+export type CategoriaHija = {
+  id: string;
+  slug: string;
+  nombre: string;
+  orden: number;
+  icono: string;
+  descripcion: string;
+  parentId: string;
+};
+
+export type Categoria = {
+  id: string;
+  slug: string;
+  nombre: string;
+  orden: number;
+  icono: string;
+  descripcion: string;
+  hijos: CategoriaHija[];
 };
 
 const API_BASE = process.env.NEXT_PUBLIC_APP_SCRIPT_URL || "";
@@ -70,20 +129,30 @@ const CONFIGWEB_FALLBACK: ConfigWeb = {
   site_descripcion: "Boutique de decoración y objetos únicos para tu hogar.",
   font_heading: "fraunces",
   font_body: "geist",
-  color_burgundy: "#7c2440",
-  color_burgundy_dark: "#5a1a2e",
-  color_rose: "#b24967",
-  color_gold: "#c89e4b",
-  color_gold_dark: "#a87d2e",
-  color_cream: "#f0e6d2",
-  color_cream_light: "#fff8e9",
+  color_burgundy: "#b24966",
+  color_burgundy_dark: "#8e3a52",
+  color_rose: "#c66585",
+  color_gold: "#dbbb83",
+  color_gold_dark: "#b89860",
+  color_cream: "#ede3d7",
+  color_cream_light: "#f9f3eb",
   color_ink: "#1f2937",
+  color_footer: "#8e3a52",
   logo_url: "/logo-512.png",
   contacto_whatsapp: "5491100000000",
   contacto_email: "hola@casaamor.com.ar",
   contacto_instagram: "casaamor",
   contacto_horario: "Lun a Vie 10-18 hs",
   footer_texto: "Hecho con amor 💛",
+  nav_categorias_pos: "abajo",       // 'inline' | 'abajo' | 'oculto'
+  nav_categorias_en_footer: "FALSE",
+  marquee_global_activo: "FALSE",
+  marquee_global_textos: "20% OFF EFECTIVO O TRANSFERENCIA · 3 CUOTAS SIN INTERÉS · ENVÍOS A TODO EL PAÍS",
+  marquee_global_color: "burgundy",
+  cuotas_sin_interes: "3",
+  cuotas_label_corto: "3 cuotas sin interés",
+  medios_pago_texto: "**Tarjeta de crédito / débito** (Visa, Mastercard, Amex)\n**Mercado Pago** — todas las opciones de pago\n**Transferencia bancaria** — 15% off del precio de lista\n**Efectivo** — solo retiro en local, 15% off",
+  medios_envio_texto: "**Andreani** — envío a domicilio en todo el país (24-72 hs)\n**Correo Argentino** — opción más económica\n**Retiro en local** — sin cargo, en CABA con cita previa\n\nVer detalles completos en la página de Envíos.",
 };
 
 const MENU_FALLBACK: MenuItem[] = [
@@ -211,11 +280,24 @@ async function fetchApi<T>(api: string, params: Record<string, string> = {}): Pr
   url.searchParams.set("token", API_TOKEN);
   Object.entries(params).forEach(([k, v]) => url.searchParams.set(k, v));
 
+  // Cache buster por ventana de 3 segundos. Garantiza propagación
+  // de cambios de Sheet → Web en MAX 3 segundos sin depender del webhook
+  // (que solo funciona en producción, no en localhost).
+  //
+  // Funciona en ambos lados:
+  //   - Frontend (Next.js Data Cache): la URL cambia cada 3s → cache miss.
+  //   - Backend (Google edge cache para script.google.com): idem.
+  //
+  // Dentro del mismo bucket de 3s, todas las requests van a la misma URL
+  // → ambas capas cachean (no quema cuota).
+  const tBucket = Math.floor(Date.now() / 3000);
+  url.searchParams.set("_t", String(tBucket));
+
   try {
-    // Revalidate alto (1 hora) porque la invalidación REAL la hace el webhook
-    // /api/revalidate que dispara Apps Script onEdit. El TTL es solo safety net.
+    // revalidate alineado al bucket (3s). El webhook, cuando funciona
+    // (solo en producción con URL pública), invalida antes vía revalidatePath.
     const res = await fetch(url.toString(), {
-      next: { revalidate: 3600, tags: ["apps-script-api"] },
+      next: { revalidate: 3, tags: ["apps-script-api"] },
       headers: { Accept: "application/json" },
     });
     if (!res.ok) return null;
@@ -269,4 +351,17 @@ export async function obtenerCatalogo(): Promise<Producto[]> {
   if (!API_CONFIGURED) return [];
   const data = await fetchApi<{ productos: Producto[] }>("catalogo");
   return data?.productos ?? [];
+}
+
+export async function obtenerProducto(sku: string): Promise<Producto | null> {
+  if (!API_CONFIGURED) return null;
+  const data = await fetchApi<{ producto: Producto | null }>("producto", { sku });
+  if (data === null || data === undefined) return null;
+  return data.producto ?? null;
+}
+
+export async function obtenerCategorias(): Promise<Categoria[]> {
+  if (!API_CONFIGURED) return [];
+  const data = await fetchApi<{ categorias: Categoria[] }>("categorias");
+  return data?.categorias ?? [];
 }

@@ -1,4 +1,4 @@
-import Image from "next/image";
+import { cloudinaryUrl } from "../../lib/img";
 
 export type GaleriaBlockConfig = {
   titulo?: string;
@@ -41,12 +41,12 @@ export function GaleriaBlock({ config }: { config: GaleriaBlockConfig }) {
             key={`${f.url}-${i}`}
             className="rounded-xl overflow-hidden bg-cream/30 aspect-square relative"
           >
-            <Image
-              src={f.url}
+            {/* eslint-disable-next-line @next/next/no-img-element */}
+            <img
+              src={cloudinaryUrl(f.url, "galeria")}
               alt={f.alt || ""}
-              fill
-              className="object-cover"
-              sizes="(max-width: 768px) 100vw, 33vw"
+              loading="lazy"
+              className="absolute inset-0 w-full h-full object-cover"
             />
             {f.caption && (
               <figcaption className="absolute inset-x-0 bottom-0 bg-burgundy/70 text-cream-light text-xs px-3 py-2">

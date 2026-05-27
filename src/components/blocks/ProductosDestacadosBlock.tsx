@@ -1,5 +1,6 @@
 import Link from "next/link";
 import Image from "next/image";
+import { ArrowRight } from "lucide-react";
 import { obtenerCatalogo, type Producto } from "../../lib/api";
 import { safeUrl } from "../../lib/sanitize";
 
@@ -119,7 +120,7 @@ export async function ProductosDestacadosBlock({
           href="/productos"
           className="inline-flex items-center gap-2 text-burgundy font-semibold hover:text-gold transition-colors"
         >
-          Ver todo el catálogo →
+          Ver todo el catálogo <ArrowRight size={18} />
         </Link>
       </div>
     </section>

@@ -10,6 +10,8 @@ import { BannerPromoBlock, type BannerPromoBlockConfig } from "./blocks/BannerPr
 import { TestimoniosBlock, type TestimoniosBlockConfig } from "./blocks/TestimoniosBlock";
 import { SeparadorBlock, type SeparadorBlockConfig } from "./blocks/SeparadorBlock";
 import { CtaContactoBlock, type CtaContactoBlockConfig } from "./blocks/CtaContactoBlock";
+import { MarqueeBlock, type MarqueeBlockConfig } from "./blocks/MarqueeBlock";
+import { CarruselBlock, type CarruselBlockConfig } from "./blocks/CarruselBlock";
 
 export function BlockRenderer({
   block,
@@ -39,6 +41,10 @@ export function BlockRenderer({
       return <TestimoniosBlock config={cfg as TestimoniosBlockConfig} />;
     case "separador":
       return <SeparadorBlock config={cfg as SeparadorBlockConfig} />;
+    case "marquee":
+      return <MarqueeBlock config={cfg as MarqueeBlockConfig} />;
+    case "carrusel_imagenes":
+      return <CarruselBlock config={cfg as CarruselBlockConfig} />;
     case "cta_contacto":
       return (
         <CtaContactoBlock

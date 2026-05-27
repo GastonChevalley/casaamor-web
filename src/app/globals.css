@@ -6,14 +6,16 @@
  * basado en ConfigWeb. Fallbacks acá por si la API no responde.
  */
 :root {
-  --brand-burgundy:      #7c2440;
-  --brand-burgundy-dark: #5a1a2e;
-  --brand-rose:          #b24967;
-  --brand-gold:          #c89e4b;
-  --brand-gold-dark:     #a87d2e;
-  --brand-cream:         #f0e6d2;
-  --brand-cream-light:   #fff8e9;
+  /* Paleta CasaAmor (basada en Tienda Nube): #b24966 rosa, #dbbb83 dorado, #ede3d7 beige. */
+  --brand-burgundy:      #b24966;
+  --brand-burgundy-dark: #8e3a52;
+  --brand-rose:          #c66585;
+  --brand-gold:          #dbbb83;
+  --brand-gold-dark:     #b89860;
+  --brand-cream:         #ede3d7;
+  --brand-cream-light:   #f9f3eb;
   --brand-ink:           #1f2937;
+  --brand-footer:        #8e3a52;
 
   --background: var(--brand-cream-light);
   --foreground: var(--brand-ink);
@@ -30,6 +32,7 @@
   --color-cream:         var(--brand-cream);
   --color-cream-light:   var(--brand-cream-light);
   --color-ink:           var(--brand-ink);
+  --color-footer:        var(--brand-footer);
   /* font-heading-active / font-body-active los setea layout.tsx */
   --font-heading:        var(--font-heading-active);
   --font-body:           var(--font-body-active);
@@ -47,4 +50,51 @@ h1, h2, h3, h4, h5, h6, .font-heading {
 
 .font-body {
   font-family: var(--font-body-active), Arial, sans-serif;
+}
+
+/*
+ * bg-footer — Tailwind v4 con @theme inline no genera utilidades bg-* para tokens
+ * arbitrarios. Definir manualmente para que la clase exista en el CSS bundle.
+ */
+.bg-footer {
+  background-color: var(--brand-footer);
+}
+
+/*
+ * Animaciones para Radix Navigation Menu (CategoriaNav).
+ * Aplicadas via data-[state=open]:animate-[...] / data-[state=closed]:animate-[...].
+ */
+@keyframes slideDownAndFade {
+  from { opacity: 0; transform: translateY(-8px); }
+  to   { opacity: 1; transform: translateY(0); }
+}
+@keyframes fadeOut {
+  from { opacity: 1; }
+  to   { opacity: 0; }
+}
+@keyframes scaleIn {
+  from { opacity: 0; transform: scale(0.96) translateY(-4px); }
+  to   { opacity: 1; transform: scale(1) translateY(0); }
+}
+@keyframes scaleOut {
+  from { opacity: 1; transform: scale(1); }
+  to   { opacity: 0; transform: scale(0.96); }
+}
+
+/*
+ * Marquee — banner animado con texto scrolling derecha-a-izquierda en loop.
+ * Patrón: duplicar el contenido inline para evitar "salto" al cerrar el loop.
+ */
+@keyframes marquee {
+  from { transform: translateX(0); }
+  to   { transform: translateX(-50%); }
+}
+.marquee-track {
+  display: inline-flex;
+  white-space: nowrap;
+  animation: marquee var(--marquee-duration, 30s) linear infinite;
+  will-change: transform;
+}
+.marquee-track:hover {
+  animation-play-state: paused;
 }

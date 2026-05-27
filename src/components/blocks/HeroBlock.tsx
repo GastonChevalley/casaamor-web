@@ -1,5 +1,6 @@
 import Link from "next/link";
 import { safeUrl } from "../../lib/sanitize";
+import { cloudinaryUrl } from "../../lib/img";
 
 export type HeroBlockConfig = {
   titulo?: string;
@@ -50,9 +51,11 @@ export function HeroBlock({
       style={(() => {
         const safeBgUrl = safeUrl(config.fondoImagenUrl);
         if (!safeBgUrl) return undefined;
+        // Transformación Cloudinary si aplica: redimensiona a tamaño hero (1920x1080).
+        const optimizedUrl = cloudinaryUrl(safeBgUrl, "hero") || safeBgUrl;
         // CSS.escape no existe en SSR de forma garantizada; reemplazamos ",
         // (, ), \ y newlines para evitar romper la propiedad CSS.
-        const safeForCss = safeBgUrl.replace(/["'()\\\n\r]/g, "");
+        const safeForCss = optimizedUrl.replace(/["'()\\\n\r]/g, "");
         return {
           backgroundImage: `url("${safeForCss}")`,
           backgroundSize: "cover",

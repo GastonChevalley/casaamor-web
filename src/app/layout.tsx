@@ -3,7 +3,9 @@ import "./globals.css";
 import { Header } from "../components/Header";
 import { Footer } from "../components/Footer";
 import { WhatsappButton } from "../components/WhatsappButton";
-import { obtenerConfigWeb, obtenerMenu } from "../lib/api";
+import { CategoriaNav } from "../components/CategoriaNav";
+import { MarqueeFijo } from "../components/MarqueeFijo";
+import { obtenerConfigWeb, obtenerMenu, obtenerCategorias, isTrueStr } from "../lib/api";
 import { todasLasFontsClassName, fontVarPorId } from "../lib/fonts";
 
 export async function generateMetadata(): Promise<Metadata> {
@@ -32,8 +34,12 @@ export default async function RootLayout({
 }: Readonly<{
   children: React.ReactNode;
 }>) {
-  // Datos desde Apps Script — todo el árbol (Header, Footer) los lee también.
-  const [config, menu] = await Promise.all([obtenerConfigWeb(), obtenerMenu()]);
+  // Datos desde Apps Script — todo el árbol (Header, Footer, CategoriaNav) los consumen.
+  const [config, menu, categorias] = await Promise.all([
+    obtenerConfigWeb(),
+    obtenerMenu(),
+    obtenerCategorias(),
+  ]);
 
   // Resolver CSS vars de fuentes
   const fontHeadingVar = fontVarPorId(config.font_heading, "fraunces");
@@ -49,9 +55,17 @@ export default async function RootLayout({
     "--brand-cream":         config.color_cream,
     "--brand-cream-light":   config.color_cream_light,
     "--brand-ink":           config.color_ink,
+    // color_footer es nuevo (Addendum 38b) — cae a burgundy_dark si la planilla no lo tiene aún.
+    "--brand-footer":        config.color_footer || config.color_burgundy_dark,
     "--font-heading-active": `var(${fontHeadingVar})`,
     "--font-body-active":    `var(${fontBodyVar})`,
   } as React.CSSProperties;
+
+  // Posición de las categorías en el header: 'inline' | 'abajo' | 'oculto'.
+  // Default 'abajo' para compat con el comportamiento previo.
+  const navPosRaw = String(config.nav_categorias_pos || "abajo").trim().toLowerCase();
+  const navPos: "inline" | "abajo" | "oculto" =
+    navPosRaw === "inline" || navPosRaw === "oculto" ? navPosRaw : "abajo";
 
   return (
     <html
@@ -60,9 +74,23 @@ export default async function RootLayout({
       style={themeStyle}
     >
       <body className="min-h-full flex flex-col bg-cream-light text-ink">
-        <Header config={config} menu={menu} />
+        <MarqueeFijo
+          activo={config.marquee_global_activo}
+          textosRaw={config.marquee_global_textos}
+          color={config.marquee_global_color}
+        />
+        <Header
+          config={config}
+          menu={menu}
+          categoriasInline={navPos === "inline" ? categorias : null}
+        />
+        {navPos === "abajo" && <CategoriaNav categorias={categorias} />}
         <main className="flex-1">{children}</main>
-        <Footer config={config} menu={menu} />
+        <Footer
+          config={config}
+          menu={menu}
+          categorias={isTrueStr(config.nav_categorias_en_footer) ? categorias : null}
+        />
         <WhatsappButton telefono={config.contacto_whatsapp} />
       </body>
     </html>
