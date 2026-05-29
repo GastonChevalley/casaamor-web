@@ -11,7 +11,7 @@ export function Footer({
   menu: MenuItem[];
   categorias?: Categoria[] | null;
 }) {
-  const titulo = config.site_title || "CasaAmor";
+  const titulo = config.site_title || "";
   const tagline = config.site_tagline || "";
   // Sanitizar TODOS los inputs del API antes de meterlos en href.
   const ig = safeHandle(config.contacto_instagram);
@@ -28,8 +28,8 @@ export function Footer({
     <footer className="bg-footer text-cream-light/85 mt-16">
       <div className={`max-w-6xl mx-auto px-4 sm:px-6 py-10 grid gap-8 ${gridCols} text-sm`}>
         <div>
-          <h3 className="font-heading text-lg text-cream-light mb-2">{titulo}</h3>
-          <p className="opacity-80">{tagline}</p>
+          {titulo && <h3 className="font-heading text-lg text-cream-light mb-2">{titulo}</h3>}
+          {tagline && <p className="opacity-80">{tagline}</p>}
         </div>
 
         <div>
@@ -117,7 +117,7 @@ export function Footer({
 
       <div className="border-t border-cream-light/15">
         <div className="max-w-6xl mx-auto px-4 sm:px-6 py-4 text-xs opacity-60 flex flex-wrap justify-between gap-2">
-          <span>© {new Date().getFullYear()} {titulo} — Todos los derechos reservados</span>
+          <span>© {new Date().getFullYear()}{titulo ? ` ${titulo} —` : ""} Todos los derechos reservados</span>
           <span>{footerTexto}</span>
         </div>
       </div>

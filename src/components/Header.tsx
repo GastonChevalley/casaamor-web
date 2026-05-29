@@ -13,7 +13,7 @@ export function Header({
   menu: MenuItem[];
   categoriasInline?: Categoria[] | null;
 }) {
-  const titulo = config.site_title || "CasaAmor";
+  const titulo = config.site_title || "";
   const logoUrl = safeUrl(config.logo_url) || "/logo-512.png";
   const mostrarCategoriasInline = !!(categoriasInline && categoriasInline.length > 0);
 
@@ -24,16 +24,18 @@ export function Header({
           <div className="size-10 rounded-full bg-cream-light/95 p-1 shadow-sm overflow-hidden">
             <Image
               src={logoUrl}
-              alt={titulo}
+              alt={titulo || "Logo del sitio"}
               width={40}
               height={40}
               priority
               className="size-full object-contain"
             />
           </div>
-          <span className="font-heading text-xl font-bold tracking-tight text-cream-light group-hover:text-gold transition-colors">
-            {titulo}
-          </span>
+          {titulo && (
+            <span className="font-heading text-xl font-bold tracking-tight text-cream-light group-hover:text-gold transition-colors">
+              {titulo}
+            </span>
+          )}
         </Link>
 
         {mostrarCategoriasInline && (
