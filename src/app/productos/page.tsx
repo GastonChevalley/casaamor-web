@@ -59,7 +59,7 @@ export default async function ProductosPage({
     "Piezas únicas, elegidas a mano. Mirá la colección completa y consultá por WhatsApp para reservar.";
 
   return (
-    <div className="max-w-6xl mx-auto px-6 sm:px-10 py-12">
+    <div className="max-w-6xl mx-auto px-6 sm:px-10 py-8 sm:py-12">
       <nav aria-label="Breadcrumb" className="text-xs text-ink/50 mb-2">
         <a href="/productos" className="hover:text-burgundy">Catálogo</a>
         {catActual && (

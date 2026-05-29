@@ -1,3 +1,4 @@
+import { Suspense } from "react";
 import Link from "next/link";
 import Image from "next/image";
 import type { ConfigWeb, MenuItem, Categoria } from "../lib/api";
@@ -58,7 +59,9 @@ export function Header({
         {/* Buscador desktop */}
         {mostrarBuscador && (
           <div className="hidden md:flex flex-1 justify-center">
-            <HeaderSearch placeholder={buscadorPlaceholder} />
+            <Suspense fallback={<div className="w-full max-w-md h-9 rounded-full bg-cream-light/10" />}>
+              <HeaderSearch placeholder={buscadorPlaceholder} />
+            </Suspense>
           </div>
         )}
 

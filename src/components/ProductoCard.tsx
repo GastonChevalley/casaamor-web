@@ -52,7 +52,7 @@ export function ProductoCard({ producto }: { producto: Producto }) {
   return (
     <Link
       href={`/productos/${encodeURIComponent(producto.sku)}`}
-      className="group block rounded-2xl overflow-hidden bg-cream-light border border-burgundy/10 hover:border-burgundy/30 transition-colors"
+      className="group block rounded-3xl overflow-hidden bg-cream-light shadow-sm hover:shadow-md transition-shadow ring-1 ring-burgundy/5"
       onMouseEnter={onEnter}
       onMouseLeave={onLeave}
     >
@@ -76,17 +76,17 @@ export function ProductoCard({ producto }: { producto: Producto }) {
           </span>
         )}
         {enOferta && (
-          <span className="absolute top-2 left-2 bg-gold text-burgundy text-xs font-semibold px-2 py-1 rounded z-10">
+          <span className="absolute top-3 left-3 bg-gold text-burgundy text-[11px] font-semibold px-2 py-1 rounded z-10">
             −{producto.descOfertaPct}%
           </span>
         )}
         {/* Indicador discreto de cantidad de fotos */}
         {fotos.length > 1 && (
-          <div className="absolute bottom-2 right-2 flex gap-1 z-10">
+          <div className="absolute bottom-3 right-3 flex gap-1 z-10">
             {fotos.map((_, i) => (
               <span
                 key={i}
-                className={`block w-1.5 h-1.5 rounded-full transition-colors ${
+                className={`block w-2 h-2 sm:w-1.5 sm:h-1.5 rounded-full transition-colors ${
                   i === idx ? "bg-cream-light shadow" : "bg-cream-light/50"
                 }`}
               />
@@ -94,32 +94,32 @@ export function ProductoCard({ producto }: { producto: Producto }) {
           </div>
         )}
       </div>
-      <div className="p-3">
-        <p className="text-xs uppercase tracking-wider text-ink/50 mb-1">
+      <div className="p-4 sm:p-3 flex flex-col gap-2">
+        <p className="text-[10px] uppercase tracking-[0.15em] text-ink/40">
           {producto.proveedor}
         </p>
-        <h3 className="font-heading text-burgundy text-base line-clamp-2 min-h-[2.5em] leading-tight">
+        <h3 className="font-heading text-burgundy text-sm sm:text-base line-clamp-2 leading-snug">
           {producto.nombre}
         </h3>
         {/* Chip de variantes (grupo con N > 1) */}
         {producto.variantesCount && producto.variantesCount > 1 && (
-          <p className="mt-1 text-xs text-rose font-medium">
+          <p className="text-xs text-rose font-medium">
             {producto.variantesCount} {producto.varianteTipo === "talle" ? "talles" : producto.varianteTipo === "material" ? "materiales" : "colores"}
           </p>
         )}
-        <div className="mt-2 flex items-baseline gap-2 flex-wrap">
+        <div className="flex items-baseline gap-2 flex-wrap">
           {enOferta && (
             <span className="text-xs text-ink/40 line-through">
               {fmtMonto(producto.precioEft)}
             </span>
           )}
           {producto.precioEftMin != null && producto.precioEftMax != null && producto.precioEftMin !== producto.precioEftMax ? (
-            <span className="text-lg font-semibold text-burgundy">
+            <span className="text-xl sm:text-lg font-semibold text-burgundy">
               <span className="text-xs text-ink/60 font-normal">Desde </span>
               {fmtMonto(producto.precioEftMin)}
             </span>
           ) : (
-            <span className="text-lg font-semibold text-burgundy">
+            <span className="text-xl sm:text-lg font-semibold text-burgundy">
               {fmtMonto(precioConOferta)}
             </span>
           )}

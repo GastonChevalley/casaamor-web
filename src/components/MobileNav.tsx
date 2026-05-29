@@ -1,6 +1,6 @@
 "use client";
 
-import { useState, useEffect } from "react";
+import { useState, useEffect, Suspense } from "react";
 import Link from "next/link";
 import { Menu, X, ChevronDown } from "lucide-react";
 import type { Categoria, MenuItem } from "../lib/api";
@@ -76,7 +76,13 @@ export function MobileNav({
           {/* Buscador */}
           {mostrarBuscador && (
             <div className="px-4 py-4 border-b border-cream-light/15">
-              <HeaderSearch placeholder={buscadorPlaceholder} />
+              <Suspense fallback={<div className="w-full h-9 rounded-full bg-cream-light/10" />}>
+                <HeaderSearch
+                  placeholder={buscadorPlaceholder}
+                  inline
+                  onNavigate={() => setOpen(false)}
+                />
+              </Suspense>
             </div>
           )}
 
