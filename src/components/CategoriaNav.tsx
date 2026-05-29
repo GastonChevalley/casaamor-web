@@ -116,69 +116,7 @@ export function CategoriaNav({ categorias }: { categorias: Categoria[] }) {
         </div>
       </NavigationMenu.Root>
 
-      {/* MOBILE: acordeones colapsables */}
-      <nav
-        aria-label="Categorías del catálogo (móvil)"
-        className="md:hidden bg-cream border-y border-burgundy/10"
-      >
-        <div className="px-4 py-2 space-y-1">
-          <Link
-            href="/productos"
-            className="block px-3 py-2 rounded text-sm font-heading text-burgundy hover:bg-burgundy/10"
-          >
-            Todos los productos
-          </Link>
-          {categorias.map((cat, idx) => {
-            const tieneHijos = cat.hijos && cat.hijos.length > 0;
-            if (!tieneHijos) {
-              return (
-                <Link
-                  key={(cat.id || cat.slug) + "-" + idx}
-                  href={`/productos?cat=${encodeURIComponent(cat.slug)}`}
-                  className="block px-3 py-2 rounded text-sm font-heading text-burgundy hover:bg-burgundy/10"
-                >
-                  {cat.nombre}
-                </Link>
-              );
-            }
-            return (
-              <details key={(cat.id || cat.slug) + "-" + idx} className="group">
-                <summary className="flex items-center justify-between px-3 py-2 rounded text-sm font-heading text-burgundy hover:bg-burgundy/10 cursor-pointer list-none">
-                  <span>{cat.nombre}</span>
-                  <svg
-                    aria-hidden
-                    className="h-3 w-3 transition-transform group-open:rotate-180"
-                    viewBox="0 0 12 12"
-                    fill="none"
-                  >
-                    <path d="M3 5l3 3 3-3" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round" />
-                  </svg>
-                </summary>
-                <ul className="pl-4 mt-1 space-y-0.5 list-none">
-                  <li>
-                    <Link
-                      href={`/productos?cat=${encodeURIComponent(cat.slug)}`}
-                      className="block px-3 py-1.5 rounded text-sm text-burgundy/80 hover:bg-gold/20"
-                    >
-                      Ver todo {cat.nombre}
-                    </Link>
-                  </li>
-                  {cat.hijos.map((hijo, hidx) => (
-                    <li key={(hijo.id || hijo.slug) + "-" + hidx}>
-                      <Link
-                        href={`/productos?cat=${encodeURIComponent(cat.slug)}&sub=${encodeURIComponent(hijo.slug)}`}
-                        className="block px-3 py-1.5 rounded text-sm text-burgundy/80 hover:bg-gold/20"
-                      >
-                        {hijo.nombre}
-                      </Link>
-                    </li>
-                  ))}
-                </ul>
-              </details>
-            );
-          })}
-        </div>
-      </nav>
+      {/* MOBILE: ahora las categorías viven dentro del hamburguesa de Header (MobileNav.tsx) */}
     </>
   );
 }

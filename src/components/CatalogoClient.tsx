@@ -1,7 +1,7 @@
 "use client";
 
-import { useMemo, useState } from "react";
-import { useRouter } from "next/navigation";
+import { useMemo, useState, useEffect } from "react";
+import { useRouter, useSearchParams } from "next/navigation";
 import { Search, Check } from "lucide-react";
 import type { Producto, Categoria } from "@/lib/api";
 import { ProductoCard } from "./ProductoCard";
@@ -18,8 +18,17 @@ export function CatalogoClient({
   subActualSlug?: string;
 }) {
   const router = useRouter();
-  const [busqueda, setBusqueda] = useState("");
+  const searchParams = useSearchParams();
+  const qInicial = searchParams?.get("q") || "";
+  const [busqueda, setBusqueda] = useState(qInicial);
   const [soloOfertas, setSoloOfertas] = useState(false);
+
+  // Sincronizar cambios externos del query string (ej: usuario hace otra búsqueda
+  // desde el header estando ya en /productos).
+  useEffect(() => {
+    const next = searchParams?.get("q") || "";
+    setBusqueda(next);
+  }, [searchParams]);
 
   const catActual = useMemo(
     () => categorias.find((c) => c.slug === catActualSlug) || null,

@@ -153,6 +153,8 @@ const CONFIGWEB_FALLBACK: ConfigWeb = {
   cuotas_label_corto: "3 cuotas sin interés",
   medios_pago_texto: "**Tarjeta de crédito / débito** (Visa, Mastercard, Amex)\n**Mercado Pago** — todas las opciones de pago\n**Transferencia bancaria** — 15% off del precio de lista\n**Efectivo** — solo retiro en local, 15% off",
   medios_envio_texto: "**Andreani** — envío a domicilio en todo el país (24-72 hs)\n**Correo Argentino** — opción más económica\n**Retiro en local** — sin cargo, en CABA con cita previa\n\nVer detalles completos en la página de Envíos.",
+  mostrar_buscador: "TRUE",
+  buscador_placeholder: "¿Qué estás buscando?",
 };
 
 const MENU_FALLBACK: MenuItem[] = [
