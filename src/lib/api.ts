@@ -155,6 +155,7 @@ const CONFIGWEB_FALLBACK: ConfigWeb = {
   medios_envio_texto: "**Andreani** — envío a domicilio en todo el país (24-72 hs)\n**Correo Argentino** — opción más económica\n**Retiro en local** — sin cargo, en CABA con cita previa\n\nVer detalles completos en la página de Envíos.",
   mostrar_buscador: "TRUE",
   buscador_placeholder: "¿Qué estás buscando?",
+  card_estilo: "clasico",
 };
 
 const MENU_FALLBACK: MenuItem[] = [

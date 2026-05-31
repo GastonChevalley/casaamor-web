@@ -14,7 +14,43 @@ function inicial(nombre: string): string {
   return limpio.charAt(0) || "?";
 }
 
-export function ProductoCard({ producto }: { producto: Producto }) {
+export type CardEstilo = "minimal" | "clasico" | "soft";
+
+// 3 presets editables desde el PWA (ConfigWeb.card_estilo).
+// Definidos como combinaciones probadas en lugar de exponer
+// border-radius / shadow / bg individualmente (Addendum 69).
+const CARD_STYLES: Record<CardEstilo, { container: string; image: string }> = {
+  minimal: {
+    container:
+      "rounded-xl overflow-hidden bg-white border border-cream hover:shadow-md transition-shadow",
+    image: "bg-cream/40",
+  },
+  clasico: {
+    container:
+      "rounded-3xl overflow-hidden bg-cream-light shadow-sm hover:shadow-md transition-shadow ring-1 ring-burgundy/5",
+    image: "bg-cream",
+  },
+  soft: {
+    container:
+      "rounded-[2rem] overflow-hidden bg-cream-light/60 shadow-md hover:shadow-xl transition-shadow border border-cream/40",
+    image: "bg-cream/60",
+  },
+};
+
+function resolveEstilo(estilo: string | undefined | null): CardEstilo {
+  if (estilo === "minimal" || estilo === "soft") return estilo;
+  return "clasico";
+}
+
+export function ProductoCard({
+  producto,
+  estilo,
+}: {
+  producto: Producto;
+  estilo?: string | null;
+}) {
+  const styleKey = resolveEstilo(estilo);
+  const cardClasses = CARD_STYLES[styleKey];
   const enOferta = !!producto.oferta && Number(producto.descOfertaPct) > 0;
   const precioConOferta = enOferta
     ? Math.round(producto.precioEft * (1 - producto.descOfertaPct / 100))
@@ -52,11 +88,11 @@ export function ProductoCard({ producto }: { producto: Producto }) {
   return (
     <Link
       href={`/productos/${encodeURIComponent(producto.sku)}`}
-      className="group block rounded-3xl overflow-hidden bg-cream-light shadow-sm hover:shadow-md transition-shadow ring-1 ring-burgundy/5"
+      className={`group block ${cardClasses.container}`}
       onMouseEnter={onEnter}
       onMouseLeave={onLeave}
     >
-      <div className="relative aspect-square bg-cream flex items-center justify-center overflow-hidden">
+      <div className={`relative aspect-square ${cardClasses.image} flex items-center justify-center overflow-hidden`}>
         {fotos.length > 0 ? (
           fotos.map((u, i) => (
             // eslint-disable-next-line @next/next/no-img-element

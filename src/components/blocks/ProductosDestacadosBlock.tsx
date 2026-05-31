@@ -1,8 +1,7 @@
 import Link from "next/link";
-import Image from "next/image";
 import { ArrowRight } from "lucide-react";
-import { obtenerCatalogo, type Producto } from "../../lib/api";
-import { safeUrl } from "../../lib/sanitize";
+import { obtenerCatalogo, obtenerConfigWeb, type Producto } from "../../lib/api";
+import { ProductoCard } from "../ProductoCard";
 
 export type ProductosDestacadosBlockConfig = {
   titulo?: string;
@@ -14,32 +13,32 @@ export type ProductosDestacadosBlockConfig = {
   limite?: number;
 };
 
-function fmt(n: number): string {
-  return "$" + Math.round(n).toLocaleString("es-AR");
-}
-
 export async function ProductosDestacadosBlock({
   config,
 }: {
   config: ProductosDestacadosBlockConfig;
 }) {
-  const todos = await obtenerCatalogo();
+  const [todos, configWeb] = await Promise.all([
+    obtenerCatalogo(),
+    obtenerConfigWeb(),
+  ]);
   const cols = config.columnas || 3;
   const limite = config.limite || cols * 2;
   const modo = config.modo || "destacados";
+  const cardEstilo = configWeb.card_estilo || "clasico";
 
   let productos: Producto[] = [];
   if (modo === "skus" && Array.isArray(config.skus)) {
-    const set = new Set(config.skus.map(s => String(s).toUpperCase()));
-    productos = todos.filter(p => set.has(String(p.sku).toUpperCase()));
+    const set = new Set(config.skus.map((s) => String(s).toUpperCase()));
+    productos = todos.filter((p) => set.has(String(p.sku).toUpperCase()));
   } else if (modo === "categoria" && config.categoria) {
-    productos = todos.filter(p => p.categoria === config.categoria);
+    productos = todos.filter((p) => p.categoria === config.categoria);
   } else {
     // destacados (campo destacado=true en el producto)
-    productos = todos.filter(p => p.destacado === true);
+    productos = todos.filter((p) => p.destacado === true);
     // Si no hay destacados marcados, fallback a primeros con stock
     if (!productos.length) {
-      productos = todos.filter(p => p.stock > 0);
+      productos = todos.filter((p) => p.stock > 0);
     }
   }
   productos = productos.slice(0, limite);
@@ -70,47 +69,9 @@ export async function ProductosDestacadosBlock({
           No hay productos para mostrar todavía.
         </div>
       ) : (
-        <div className={`grid gap-6 grid-cols-1 ${gridClass}`}>
-          {productos.map(p => (
-            <Link
-              key={p.sku}
-              href={`/productos/${p.sku}`}
-              className="group block rounded-2xl bg-white border border-cream hover:shadow-lg transition-shadow overflow-hidden"
-            >
-              <div className="aspect-square bg-cream/40 relative overflow-hidden">
-                {(() => {
-                  const fotoSafe = safeUrl(p.fotoUrl);
-                  if (fotoSafe) {
-                    return (
-                      <Image
-                        src={fotoSafe}
-                        alt={p.nombre}
-                        fill
-                        sizes="(max-width: 640px) 100vw, (max-width: 1024px) 33vw, 25vw"
-                        className="object-cover group-hover:scale-105 transition-transform"
-                      />
-                    );
-                  }
-                  return (
-                    <div className="absolute inset-0 flex items-center justify-center text-cream font-heading text-3xl">
-                      {p.nombre.charAt(0)}
-                    </div>
-                  );
-                })()}
-                {p.oferta && p.descOfertaPct > 0 && (
-                  <span className="absolute top-3 left-3 bg-gold text-burgundy text-xs font-bold px-2 py-1 rounded">
-                    −{p.descOfertaPct}%
-                  </span>
-                )}
-              </div>
-              <div className="p-4">
-                <h3 className="font-heading text-burgundy text-base leading-tight group-hover:text-gold transition-colors">
-                  {p.nombre}
-                </h3>
-                <p className="text-ink/60 text-xs mt-1">{p.proveedor}</p>
-                <p className="text-burgundy font-semibold mt-2">{fmt(p.precioEft)}</p>
-              </div>
-            </Link>
+        <div className={`grid gap-3 sm:gap-6 grid-cols-2 ${gridClass}`}>
+          {productos.map((p) => (
+            <ProductoCard key={p.sku} producto={p} estilo={cardEstilo} />
           ))}
         </div>
       )}

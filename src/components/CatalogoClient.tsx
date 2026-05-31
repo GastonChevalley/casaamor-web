@@ -11,11 +11,13 @@ export function CatalogoClient({
   categorias = [],
   catActualSlug = "",
   subActualSlug = "",
+  cardEstilo,
 }: {
   productos: Producto[];
   categorias?: Categoria[];
   catActualSlug?: string;
   subActualSlug?: string;
+  cardEstilo?: string | null;
 }) {
   const router = useRouter();
   const searchParams = useSearchParams();
@@ -176,7 +178,7 @@ export function CatalogoClient({
       ) : (
         <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-4 gap-3 sm:gap-6">
           {filtrados.map((p) => (
-            <ProductoCard key={p.sku} producto={p} />
+            <ProductoCard key={p.sku} producto={p} estilo={cardEstilo} />
           ))}
         </div>
       )}

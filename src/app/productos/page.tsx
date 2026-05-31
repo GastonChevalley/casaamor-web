@@ -1,5 +1,5 @@
 import type { Metadata } from "next";
-import { obtenerCatalogo, obtenerCategorias } from "@/lib/api";
+import { obtenerCatalogo, obtenerCategorias, obtenerConfigWeb } from "@/lib/api";
 import { CatalogoClient } from "@/components/CatalogoClient";
 
 type SearchParams = Promise<{ cat?: string; sub?: string }>;
@@ -43,10 +43,12 @@ export default async function ProductosPage({
   searchParams: SearchParams;
 }) {
   const { cat, sub } = await searchParams;
-  const [productos, categorias] = await Promise.all([
+  const [productos, categorias, configWeb] = await Promise.all([
     obtenerCatalogo(),
     obtenerCategorias(),
+    obtenerConfigWeb(),
   ]);
+  const cardEstilo = configWeb.card_estilo || "clasico";
 
   const catActual = _matchCat(cat, categorias);
   const subActual = catActual ? _matchCat(sub, catActual.hijos) : null;
@@ -106,6 +108,7 @@ export default async function ProductosPage({
           categorias={categorias}
           catActualSlug={catActual?.slug || ""}
           subActualSlug={subActual?.slug || ""}
+          cardEstilo={cardEstilo}
         />
       )}
     </div>

@@ -54,7 +54,7 @@ export function Header({
               width={72}
               height={72}
               priority
-              className="h-12 sm:h-14 w-auto object-contain group-hover:opacity-90 transition-opacity"
+              className="h-14 sm:h-16 w-auto object-contain group-hover:opacity-90 transition-opacity"
             />
             {titulo && (
               <span className="hidden sm:inline font-heading text-xl font-bold tracking-tight text-cream-light group-hover:text-gold transition-colors">
