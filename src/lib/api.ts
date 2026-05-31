@@ -156,6 +156,8 @@ const CONFIGWEB_FALLBACK: ConfigWeb = {
   mostrar_buscador: "TRUE",
   buscador_placeholder: "¿Qué estás buscando?",
   card_estilo: "clasico",
+  card_estilo_home: "clasico",
+  card_columnas_home: "3",
 };
 
 const MENU_FALLBACK: MenuItem[] = [

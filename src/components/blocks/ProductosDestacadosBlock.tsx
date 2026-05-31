@@ -22,10 +22,13 @@ export async function ProductosDestacadosBlock({
     obtenerCatalogo(),
     obtenerConfigWeb(),
   ]);
-  const cols = config.columnas || 3;
+  // Prioridad de columnas: config del bloque (JSON) > key global > default 3.
+  const colsGlobal = Number(configWeb.card_columnas_home) || 0;
+  const cols = (config.columnas || colsGlobal || 3) as 2 | 3 | 4;
   const limite = config.limite || cols * 2;
   const modo = config.modo || "destacados";
-  const cardEstilo = configWeb.card_estilo || "clasico";
+  // Estilo del home: key propia con fallback a la del catálogo (backward compat).
+  const cardEstilo = configWeb.card_estilo_home || configWeb.card_estilo || "clasico";
 
   let productos: Producto[] = [];
   if (modo === "skus" && Array.isArray(config.skus)) {

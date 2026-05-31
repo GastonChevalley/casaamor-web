@@ -72,13 +72,13 @@ export function CategoriaNav({ categorias }: { categorias: Categoria[] }) {
                 <NavigationMenu.Content
                   className="data-[motion=from-start]:animate-[slideDownAndFade_220ms_cubic-bezier(0.16,1,0.3,1)] data-[motion=from-end]:animate-[slideDownAndFade_220ms_cubic-bezier(0.16,1,0.3,1)] data-[motion=to-start]:animate-[fadeOut_120ms] data-[motion=to-end]:animate-[fadeOut_120ms]"
                 >
-                  <div className="p-6">
+                  <div className="p-4 min-w-[220px]">
                     {cat.descripcion && (
-                      <p className="text-xs text-ink/60 mb-3 max-w-md">{cat.descripcion}</p>
+                      <p className="text-xs text-ink/60 mb-3 max-w-md leading-snug px-1">{cat.descripcion}</p>
                     )}
                     <ul
-                      className={`grid gap-x-6 gap-y-1 list-none ${
-                        cat.hijos.length > 4 ? "grid-cols-2 lg:grid-cols-3" : "grid-cols-1"
+                      className={`grid gap-x-4 gap-y-0.5 list-none ${
+                        cat.hijos.length > 6 ? "grid-cols-2" : "grid-cols-1"
                       }`}
                     >
                       {cat.hijos.map((hijo, hidx) => (
@@ -86,7 +86,7 @@ export function CategoriaNav({ categorias }: { categorias: Categoria[] }) {
                           <NavigationMenu.Link asChild>
                             <Link
                               href={`/productos?cat=${encodeURIComponent(cat.slug)}&sub=${encodeURIComponent(hijo.slug)}`}
-                              className="block px-3 py-2 rounded text-sm text-burgundy hover:bg-gold/20 hover:text-burgundy-dark transition-colors"
+                              className="block px-4 py-2.5 rounded-md text-sm text-burgundy whitespace-nowrap hover:bg-cream hover:text-burgundy-dark transition-colors"
                             >
                               {hijo.nombre}
                             </Link>
