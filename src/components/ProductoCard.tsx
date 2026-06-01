@@ -134,7 +134,7 @@ export function ProductoCard({
         <p className="text-[10px] uppercase tracking-[0.15em] text-ink/40">
           {producto.proveedor}
         </p>
-        <h3 className="font-heading text-burgundy text-sm sm:text-base line-clamp-2 leading-snug">
+        <h3 className="font-heading text-burgundy text-sm sm:text-base line-clamp-2 leading-snug min-h-[2.5em]">
           {producto.nombre}
         </h3>
         {/* Chip de variantes (grupo con N > 1) */}
