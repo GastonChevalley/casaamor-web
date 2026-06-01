@@ -12,6 +12,10 @@ import { SeparadorBlock, type SeparadorBlockConfig } from "./blocks/SeparadorBlo
 import { CtaContactoBlock, type CtaContactoBlockConfig } from "./blocks/CtaContactoBlock";
 import { MarqueeBlock, type MarqueeBlockConfig } from "./blocks/MarqueeBlock";
 import { CarruselBlock, type CarruselBlockConfig } from "./blocks/CarruselBlock";
+import {
+  CategoriasTilesBlock,
+  type CategoriasTilesBlockConfig,
+} from "./blocks/CategoriasTilesBlock";
 
 export function BlockRenderer({
   block,
@@ -45,6 +49,8 @@ export function BlockRenderer({
       return <MarqueeBlock config={cfg as MarqueeBlockConfig} />;
     case "carrusel_imagenes":
       return <CarruselBlock config={cfg as CarruselBlockConfig} />;
+    case "categorias_tiles":
+      return <CategoriasTilesBlock config={cfg as CategoriasTilesBlockConfig} />;
     case "cta_contacto":
       return (
         <CtaContactoBlock
