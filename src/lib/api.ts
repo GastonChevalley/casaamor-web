@@ -142,6 +142,7 @@ const CONFIGWEB_FALLBACK: ConfigWeb = {
   color_cream_light: "#f9f3eb",
   color_ink: "#1f2937",
   color_footer: "#8e3a52",
+  color_dropdown_bg: "#f9f3eb",
   logo_url: "/logo-512.png",
   contacto_whatsapp: "5491100000000",
   contacto_email: "hola@casaamor.com.ar",

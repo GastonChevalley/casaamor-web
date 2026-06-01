@@ -57,6 +57,8 @@ export default async function RootLayout({
     "--brand-ink":           config.color_ink,
     // color_footer es nuevo (Addendum 38b) — cae a burgundy_dark si la planilla no lo tiene aún.
     "--brand-footer":        config.color_footer || config.color_burgundy_dark,
+    // color_dropdown_bg (Addendum 76) — fondo del panel de subcategorías en desktop. Cae a cream-light.
+    "--brand-dropdown-bg":   config.color_dropdown_bg || config.color_cream_light,
     "--font-heading-active": `var(${fontHeadingVar})`,
     "--font-body-active":    `var(${fontBodyVar})`,
   } as React.CSSProperties;

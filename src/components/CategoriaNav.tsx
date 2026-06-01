@@ -7,9 +7,9 @@ import type { Categoria } from "@/lib/api";
 /**
  * Barra de categorías del catálogo, debajo del Header.
  *
- * Desktop (md+): Radix NavigationMenu con Viewport portalizado que flota sobre
- * el resto del sitio (resuelve el bug del dropdown que quedaba contenido en
- * un padre con overflow). Animación slide+fade al abrir.
+ * Desktop (md+): Radix NavigationMenu. Addendum 76 — cada panel se posiciona
+ * DEBAJO de su trigger (no en un Viewport centralizado), patrón Shopify/Vercel.
+ * Sin zona muerta entre trigger y panel.
  *
  * Mobile: <details><summary> nativos por accesibilidad + cero JS extra.
  *
@@ -24,7 +24,7 @@ export function CategoriaNav({ categorias }: { categorias: Categoria[] }) {
       {/* DESKTOP */}
       <NavigationMenu.Root
         aria-label="Categorías del catálogo"
-        className="hidden md:flex relative justify-center bg-cream border-y border-burgundy/10 z-10"
+        className="hidden md:flex justify-center bg-cream border-y border-burgundy/10 z-10"
       >
         <NavigationMenu.List className="flex flex-wrap justify-center items-center gap-1 px-4 py-2 list-none">
           <NavigationMenu.Item>
@@ -55,7 +55,10 @@ export function CategoriaNav({ categorias }: { categorias: Categoria[] }) {
               );
             }
             return (
-              <NavigationMenu.Item key={(cat.id || cat.slug) + "-" + idx}>
+              <NavigationMenu.Item
+                key={(cat.id || cat.slug) + "-" + idx}
+                className="relative"
+              >
                 <NavigationMenu.Trigger
                   className="group inline-flex items-center gap-1 px-4 py-2 rounded text-sm font-heading text-burgundy hover:bg-burgundy/10 data-[state=open]:bg-burgundy data-[state=open]:text-cream-light transition-colors outline-none focus-visible:ring-2 focus-visible:ring-burgundy/40"
                 >
@@ -70,9 +73,9 @@ export function CategoriaNav({ categorias }: { categorias: Categoria[] }) {
                   </svg>
                 </NavigationMenu.Trigger>
                 <NavigationMenu.Content
-                  className="data-[motion=from-start]:animate-[slideDownAndFade_220ms_cubic-bezier(0.16,1,0.3,1)] data-[motion=from-end]:animate-[slideDownAndFade_220ms_cubic-bezier(0.16,1,0.3,1)] data-[motion=to-start]:animate-[fadeOut_120ms] data-[motion=to-end]:animate-[fadeOut_120ms]"
+                  className="absolute top-full left-0 mt-1 min-w-[220px] origin-top overflow-hidden rounded-lg border border-gold/30 bg-[var(--brand-dropdown-bg)] shadow-xl shadow-burgundy/10 z-50 data-[state=open]:animate-[slideDownAndFade_220ms_cubic-bezier(0.16,1,0.3,1)] data-[state=closed]:animate-[fadeOut_120ms]"
                 >
-                  <div className="p-4 min-w-[220px]">
+                  <div className="p-4">
                     {cat.descripcion && (
                       <p className="text-xs text-ink/60 mb-3 max-w-md leading-snug px-1">{cat.descripcion}</p>
                     )}
@@ -99,21 +102,7 @@ export function CategoriaNav({ categorias }: { categorias: Categoria[] }) {
               </NavigationMenu.Item>
             );
           })}
-
-          <NavigationMenu.Indicator
-            className="top-full z-[1] flex h-2 items-end justify-center overflow-hidden transition-[width,transform] duration-250 data-[state=hidden]:opacity-0 data-[state=visible]:opacity-100"
-          >
-            <div className="relative top-[55%] h-2 w-2 rotate-45 rounded-tl-sm bg-cream-light border-l border-t border-gold/30" />
-          </NavigationMenu.Indicator>
         </NavigationMenu.List>
-
-        {/* Viewport portalizado: posicionado debajo de la List, full-width */}
-        <div className="absolute top-full left-0 right-0 flex justify-center z-50 perspective-[2000px]">
-          <NavigationMenu.Viewport
-            className="relative mt-1 w-full max-w-3xl origin-top overflow-hidden rounded-b-lg border border-gold/30 bg-cream-light shadow-xl shadow-burgundy/10 data-[state=open]:animate-[scaleIn_220ms_cubic-bezier(0.16,1,0.3,1)] data-[state=closed]:animate-[scaleOut_120ms]"
-            style={{ height: "var(--radix-navigation-menu-viewport-height)" }}
-          />
-        </div>
       </NavigationMenu.Root>
 
       {/* MOBILE: ahora las categorías viven dentro del hamburguesa de Header (MobileNav.tsx) */}
