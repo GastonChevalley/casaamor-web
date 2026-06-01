@@ -4,6 +4,7 @@ import { notFound } from "next/navigation";
 import { ArrowLeft } from "lucide-react";
 import { obtenerProducto, obtenerConfigWeb } from "@/lib/api";
 import { ProductoDetalleClient } from "@/components/ProductoDetalleClient";
+import { RelacionadosSection } from "@/components/RelacionadosSection";
 
 type Params = Promise<{ sku: string }>;
 
@@ -36,15 +37,24 @@ export default async function ProductoDetallePage({ params }: { params: Params }
 
   if (!producto) notFound();
 
+  // RelacionadosSection vive FUERA del max-w-5xl del detalle para tener su propio
+  // ancho (max-w-6xl, alineado al catálogo). Si no hay relacionados → no renderiza.
+  const cardEstilo = config.card_estilo || "clasico";
   return (
-    <div className="max-w-5xl mx-auto px-6 sm:px-10 py-12">
-      <Link
-        href="/productos"
-        className="text-burgundy hover:text-gold text-sm inline-flex items-center gap-1.5 mb-6"
-      >
-        <ArrowLeft size={16} /> Volver al catálogo
-      </Link>
-      <ProductoDetalleClient producto={producto} config={config} />
-    </div>
+    <>
+      <div className="max-w-5xl mx-auto px-6 sm:px-10 py-12">
+        <Link
+          href="/productos"
+          className="text-burgundy hover:text-gold text-sm inline-flex items-center gap-1.5 mb-6"
+        >
+          <ArrowLeft size={16} /> Volver al catálogo
+        </Link>
+        <ProductoDetalleClient producto={producto} config={config} />
+      </div>
+      <RelacionadosSection
+        productos={producto.relacionados || []}
+        cardEstilo={cardEstilo}
+      />
+    </>
   );
 }

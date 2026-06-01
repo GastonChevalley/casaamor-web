@@ -56,7 +56,16 @@ export function CatalogoClient({
   const filtrados = useMemo(() => {
     const q = busqueda.trim().toLowerCase();
     return productos.filter((p) => {
-      if (idsValidos && (!p.categoriaId || !idsValidos.has(p.categoriaId))) return false;
+      if (idsValidos) {
+        // Filtro OR: el producto pasa si su categoría principal O alguna de las
+        // extras coincide con el filtro. Equivalente a Shopify/TN/WooCommerce.
+        const todasLasCats: string[] = [];
+        if (p.categoriaId) todasLasCats.push(p.categoriaId);
+        if (p.categoriaIdsExtra && p.categoriaIdsExtra.length) {
+          p.categoriaIdsExtra.forEach((id) => todasLasCats.push(id));
+        }
+        if (!todasLasCats.some((id) => idsValidos.has(id))) return false;
+      }
       if (soloOfertas && !(p.oferta && p.descOfertaPct > 0)) return false;
       if (q) {
         const hay =

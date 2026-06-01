@@ -143,7 +143,7 @@ export function ProductoCard({
             {producto.variantesCount} {producto.varianteTipo === "talle" ? "talles" : producto.varianteTipo === "material" ? "materiales" : "colores"}
           </p>
         )}
-        <div className="flex items-baseline gap-2 flex-wrap">
+        <div className="flex flex-col gap-0.5">
           {enOferta && (
             <span className="text-xs text-ink/40 line-through">
               {fmtMonto(producto.precioEft)}

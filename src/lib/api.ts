@@ -77,6 +77,7 @@ export type Producto = {
   oferta: boolean;
   descOfertaPct: number;
   categoriaId?: string;
+  categoriaIdsExtra?: string[];   // categorías adicionales tipo "tags" — Addendum 72
   fotoUrl?: string;          // primera foto (backward-compat)
   fotos?: string[];          // array de hasta 4 fotos (Addendum 52)
   categoria?: string;
@@ -90,6 +91,9 @@ export type Producto = {
   precioEftMin?: number;
   precioEftMax?: number;
   variantesCount?: number;
+  // Productos sugeridos/relacionados — solo presente en detalle (_apiProducto_) — Addendum 72
+  productosRelacionados?: string[];  // SKUs curados a mano (solo para admin write)
+  relacionados?: Producto[];          // computado por backend, máx 4 cards con shape de catálogo
 };
 
 export type CategoriaHija = {
