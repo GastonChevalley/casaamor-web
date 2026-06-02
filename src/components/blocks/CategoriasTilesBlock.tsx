@@ -18,10 +18,19 @@ export type CategoriasTilesBlockConfig = {
   imagenes?: Record<string, string>;
   /** Override de bajada corta por slug: { tablas: 'Arma tus picaditas' }. */
   bajadas?: Record<string, string>;
-  /** Columnas en desktop. Default 4. Mobile siempre muestra 2. */
+  /** Columnas en desktop. Default 4. */
   columnas?: 2 | 3 | 4;
+  /** Columnas en mobile. Default 2. Si quiere look "card grande", poner 1. */
+  columnasMobile?: 1 | 2;
   /** Aspect ratio de cada tile. Default 4:3 (look boutique). */
   aspectRatio?: "1:1" | "4:3" | "16:9";
+  /**
+   * Color del degradado overlay sobre cada tile (afecta legibilidad del nombre).
+   * Opciones: 'burgundy' (default actual), 'gris' (negro con transparencia),
+   * 'gold', 'rose', 'ink' (gris oscuro intenso). Mantienen el mismo nivel de
+   * intensidad del degradé original — solo cambia el color.
+   */
+  degradeColor?: "burgundy" | "gris" | "gold" | "rose" | "ink";
 };
 
 /**
@@ -46,9 +55,15 @@ export async function CategoriasTilesBlock({
   const arbol = await obtenerCategorias();
   const modo = config.modo === "manual" ? "manual" : "top";
   const cols = (config.columnas || 4) as 2 | 3 | 4;
+  const colsMobile = (config.columnasMobile === 1 ? 1 : 2) as 1 | 2;
   const ratio = config.aspectRatio || "4:3";
   const imagenes = config.imagenes || {};
   const bajadas = config.bajadas || {};
+  const degradeKey = (
+    ["burgundy", "gris", "gold", "rose", "ink"].includes(config.degradeColor || "")
+      ? config.degradeColor
+      : "burgundy"
+  ) as "burgundy" | "gris" | "gold" | "rose" | "ink";
 
   // Mapa slug → { ref, slugMadre? } para resolver tanto top como sub.
   // Indexar el árbol una sola vez (~25 categorías típico).
@@ -102,11 +117,28 @@ export async function CategoriasTilesBlock({
     4: "sm:grid-cols-2 lg:grid-cols-4",
   }[cols];
 
+  const mobileGridClass = {
+    1: "grid-cols-1",
+    2: "grid-cols-2",
+  }[colsMobile];
+
   const aspectClass = {
     "1:1": "aspect-square",
     "4:3": "aspect-[4/3]",
     "16:9": "aspect-[16/9]",
   }[ratio];
+
+  // Degradado overlay (Addendum 78): los stops /85 → /55 → /0 mantienen la
+  // "personalidad" del degradé original con un poco más de oscuridad en la
+  // zona media para mejorar contraste con el texto (que ahora vive más abajo).
+  const DEGRADE_PRESETS = {
+    burgundy: "from-burgundy/85 via-burgundy/55 to-transparent",
+    gris:     "from-black/85 via-black/55 to-transparent",
+    gold:     "from-gold-dark/85 via-gold-dark/55 to-transparent",
+    rose:     "from-rose/85 via-rose/55 to-transparent",
+    ink:      "from-ink/90 via-ink/55 to-transparent",
+  } as const;
+  const gradientClass = DEGRADE_PRESETS[degradeKey];
 
   return (
     <section className="max-w-6xl mx-auto px-6 sm:px-10 py-16">
@@ -125,7 +157,7 @@ export async function CategoriasTilesBlock({
         </header>
       )}
 
-      <div className={`grid gap-3 sm:gap-5 grid-cols-2 ${gridClass}`}>
+      <div className={`grid gap-3 sm:gap-5 ${mobileGridClass} ${gridClass}`}>
         {tiles.map((t) => {
           const fotoUrl = imagenes[t.slug] || "";
           const bajada = bajadas[t.slug] || "";
@@ -152,10 +184,11 @@ export async function CategoriasTilesBlock({
                     {t.icono || t.nombre.charAt(0).toUpperCase()}
                   </span>
                 )}
-                {/* Overlay gradient para legibilidad del texto */}
-                <div className="absolute inset-x-0 bottom-0 h-2/3 bg-gradient-to-t from-burgundy/85 via-burgundy/40 to-transparent pointer-events-none" />
+                {/* Overlay gradient: color configurable + intensidad fija. h-3/4 oscurece más arriba para que el texto siempre tenga contraste. */}
+                <div className={`absolute inset-x-0 bottom-0 h-3/4 bg-gradient-to-t ${gradientClass} pointer-events-none`} />
               </div>
-              <div className="absolute inset-x-0 bottom-0 p-4 sm:p-5 text-cream-light">
+              {/* Texto: anclado al borde inferior (pb chico, pt-2) para vivir en la zona MÁS oscura del degradé y maximizar contraste. */}
+              <div className="absolute inset-x-0 bottom-0 px-4 pb-3 pt-2 sm:px-5 sm:pb-4 text-cream-light">
                 <h3 className="font-heading text-lg sm:text-xl leading-tight">
                   {t.nombre}
                 </h3>
