@@ -1,7 +1,7 @@
 import Link from "next/link";
 import { ArrowRight } from "lucide-react";
 import { obtenerCategorias, type Categoria, type CategoriaHija } from "../../lib/api";
-import { cloudinaryUrl } from "../../lib/img";
+import { cloudinaryUrl, type ImgVariant } from "../../lib/img";
 
 export type CategoriasTilesBlockConfig = {
   titulo?: string;
@@ -128,6 +128,14 @@ export async function CategoriasTilesBlock({
     "16:9": "aspect-[16/9]",
   }[ratio];
 
+  // Variante de Cloudinary que entrega la foto EN EL MISMO aspect ratio del slot
+  // → evita doble recorte (Cloudinary + browser object-cover).
+  const tileVariant: ImgVariant = (
+    ratio === "1:1" ? "tile-1-1" :
+    ratio === "16:9" ? "tile-16-9" :
+    "tile-4-3"
+  );
+
   // Degradado overlay (Addendum 78): los stops /85 → /55 → /0 mantienen la
   // "personalidad" del degradé original con un poco más de oscuridad en la
   // zona media para mejorar contraste con el texto (que ahora vive más abajo).
@@ -171,7 +179,7 @@ export async function CategoriasTilesBlock({
                 {fotoUrl ? (
                   // eslint-disable-next-line @next/next/no-img-element
                   <img
-                    src={cloudinaryUrl(fotoUrl, "hero")}
+                    src={cloudinaryUrl(fotoUrl, tileVariant)}
                     alt={t.nombre}
                     loading="lazy"
                     className="absolute inset-0 w-full h-full object-cover transition-transform duration-500 group-hover:scale-105"

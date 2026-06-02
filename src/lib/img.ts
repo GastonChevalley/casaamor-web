@@ -23,7 +23,12 @@ export type ImgVariant =
   | "hero"         // 1920×1080 — hero full-width (banner)
   | "carrusel"     // 1600×900 — slides de carrusel (banner)
   | "galeria"      // 800×800 — items de galería
-  | "thumb";       // 200×200 — thumbnails
+  | "thumb"        // 200×200 — thumbnails
+  // Tile variants para CategoriasTilesBlock — entregan la foto YA en el aspect
+  // ratio del slot para evitar doble recorte (Cloudinary + browser object-cover).
+  | "tile-1-1"     // 1200×1200 cuadrado
+  | "tile-4-3"     // 1600×1200 — 4:3 (default del bloque)
+  | "tile-16-9";   // 1920×1080 — 16:9 (banner-style)
 
 const VARIANTS: Record<ImgVariant, string> = {
   card:          "w_600,h_600,c_fill,g_auto,q_auto,f_auto",
@@ -33,6 +38,9 @@ const VARIANTS: Record<ImgVariant, string> = {
   carrusel:      "w_1600,h_900,c_fill,g_auto,q_auto,f_auto",
   galeria:       "w_800,h_800,c_fill,g_auto,q_auto,f_auto",
   thumb:         "w_200,h_200,c_fill,g_auto,q_auto,f_auto",
+  "tile-1-1":    "w_1200,h_1200,c_fill,g_auto,q_auto,f_auto",
+  "tile-4-3":    "w_1600,h_1200,c_fill,g_auto,q_auto,f_auto",
+  "tile-16-9":   "w_1920,h_1080,c_fill,g_auto,q_auto,f_auto",
 };
 
 /**
