@@ -7,23 +7,54 @@ import { CategoriaNav } from "../components/CategoriaNav";
 import { MarqueeFijo } from "../components/MarqueeFijo";
 import { obtenerConfigWeb, obtenerMenu, obtenerCategorias, isTrueStr } from "../lib/api";
 import { todasLasFontsClassName, fontVarPorId } from "../lib/fonts";
+import { SITE_URL } from "../lib/site";
 
 export async function generateMetadata(): Promise<Metadata> {
   const config = await obtenerConfigWeb();
+  const siteTitle = config.site_title || "CasaAmor";
+  const siteTagline = config.site_tagline || "Decoración con amor";
+  const siteDesc = config.site_descripcion || "Boutique de decoración y objetos únicos para tu hogar.";
   return {
     title: {
-      default: `${config.site_title || "CasaAmor"} — ${config.site_tagline || "Decoración con amor"}`,
-      template: `%s · ${config.site_title || "CasaAmor"}`,
+      default: `${siteTitle} — ${siteTagline}`,
+      template: `%s · ${siteTitle}`,
     },
-    description: config.site_descripcion,
-    metadataBase: new URL("https://casaamor.com.ar"),
+    description: siteDesc,
+    // metadataBase desde env var (lib/site.ts) — switch automático cuando llegue dominio.
+    metadataBase: new URL(SITE_URL),
+    alternates: {
+      canonical: "/",
+    },
     openGraph: {
-      title: config.site_title || "CasaAmor",
-      description: config.site_tagline || "",
+      title: siteTitle,
+      description: siteDesc,
+      url: SITE_URL,
+      siteName: siteTitle,
       locale: "es_AR",
       type: "website",
+      // images NO se setea aquí — Next.js inyecta automático desde
+      // `app/opengraph-image.tsx` (1200×630 generada en build).
+      // Si una página define su propio openGraph.images (ej producto), ese gana.
+    },
+    twitter: {
+      card: "summary_large_image",
+      title: siteTitle,
+      description: siteDesc,
+      // images NO se setea aquí — Next.js inyecta desde `app/twitter-image.tsx`
+      // o fallback al opengraph-image. Páginas con OG propio (producto) ganan.
+    },
+    robots: {
+      index: true,
+      follow: true,
+      googleBot: {
+        index: true,
+        follow: true,
+        "max-image-preview": "large",
+        "max-snippet": -1,
+      },
     },
     icons: {
+      icon: "/logo-512.png",
       apple: "/logo-512.png",
     },
   };
@@ -69,12 +100,67 @@ export default async function RootLayout({
   const navPos: "inline" | "abajo" | "oculto" =
     navPosRaw === "inline" || navPosRaw === "oculto" ? navPosRaw : "abajo";
 
+  // Schema.org JSON-LD para Organization + WebSite (Addendum 80 / Fase A SEO).
+  // Aplica a TODAS las páginas. Google los usa para Knowledge Panel, sitelinks,
+  // y SearchAction en resultados orgánicos.
+  const orgName = config.site_title || "CasaAmor";
+  const orgDesc = config.site_descripcion || "Boutique de decoración y objetos únicos para tu hogar.";
+  const wa = String(config.contacto_whatsapp || "").trim();
+  const ig = String(config.contacto_instagram || "").trim();
+  const sameAs: string[] = [];
+  if (ig) sameAs.push(`https://instagram.com/${ig.replace(/^@/, "")}`);
+  if (wa) sameAs.push(`https://wa.me/${wa.replace(/[^0-9]/g, "")}`);
+
+  const orgJsonLd = {
+    "@context": "https://schema.org",
+    "@type": "Organization",
+    name: orgName,
+    url: SITE_URL,
+    logo: `${SITE_URL}/logo-512.png`,
+    description: orgDesc,
+    ...(sameAs.length > 0 && { sameAs }),
+    ...(wa && {
+      contactPoint: {
+        "@type": "ContactPoint",
+        telephone: `+${wa.replace(/[^0-9]/g, "")}`,
+        contactType: "customer service",
+        areaServed: "AR",
+        availableLanguage: "Spanish",
+      },
+    }),
+  };
+
+  const websiteJsonLd = {
+    "@context": "https://schema.org",
+    "@type": "WebSite",
+    name: orgName,
+    url: SITE_URL,
+    potentialAction: {
+      "@type": "SearchAction",
+      target: {
+        "@type": "EntryPoint",
+        urlTemplate: `${SITE_URL}/productos?q={search_term_string}`,
+      },
+      "query-input": "required name=search_term_string",
+    },
+  };
+
   return (
     <html
       lang="es-AR"
       className={`${todasLasFontsClassName()} h-full antialiased`}
       style={themeStyle}
     >
+      <head>
+        <script
+          type="application/ld+json"
+          dangerouslySetInnerHTML={{ __html: JSON.stringify(orgJsonLd) }}
+        />
+        <script
+          type="application/ld+json"
+          dangerouslySetInnerHTML={{ __html: JSON.stringify(websiteJsonLd) }}
+        />
+      </head>
       <body className="min-h-full flex flex-col bg-cream-light text-ink">
         <MarqueeFijo
           activo={config.marquee_global_activo}
