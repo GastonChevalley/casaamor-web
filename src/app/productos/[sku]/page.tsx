@@ -6,6 +6,7 @@ import { obtenerProducto, obtenerConfigWeb } from "@/lib/api";
 import { ProductoDetalleClient } from "@/components/ProductoDetalleClient";
 import { RelacionadosSection } from "@/components/RelacionadosSection";
 import { siteUrl } from "@/lib/site";
+import { cloudinaryUrl } from "@/lib/img";
 
 type Params = Promise<{ sku: string }>;
 
@@ -35,10 +36,17 @@ export async function generateMetadata({
 
   // Si el producto tiene fotos propias → las usa para OG/Twitter.
   // Si no → Next.js cae automático a `app/opengraph-image.tsx` (default del sitio).
+  // Aplicamos variant 'og' (1200×1200 JPG) para máxima compatibilidad con WhatsApp/Facebook
+  // que prefieren JPG sobre WebP y necesitan dimensiones predecibles para el preview.
   const ogImages = fotos.length
-    ? fotos.slice(0, 4).map((url) => ({ url, width: 1200, height: 1200, alt: producto.nombre }))
+    ? fotos.slice(0, 4).map((url) => ({
+        url: cloudinaryUrl(url, "og") || url,
+        width: 1200,
+        height: 1200,
+        alt: producto.nombre,
+      }))
     : undefined;
-  const twitterImages = fotos.length ? [fotos[0]] : undefined;
+  const twitterImages = fotos.length ? [cloudinaryUrl(fotos[0], "og") || fotos[0]] : undefined;
 
   return {
     title: producto.nombre,

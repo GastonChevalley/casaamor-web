@@ -28,7 +28,10 @@ export type ImgVariant =
   // ratio del slot para evitar doble recorte (Cloudinary + browser object-cover).
   | "tile-1-1"     // 1200×1200 cuadrado
   | "tile-4-3"     // 1600×1200 — 4:3 (default del bloque)
-  | "tile-16-9";   // 1920×1080 — 16:9 (banner-style)
+  | "tile-16-9"    // 1920×1080 — 16:9 (banner-style)
+  // OG variant — forzamos JPG porque WhatsApp/Facebook prefieren JPG/PNG sobre WebP
+  // para previews de OpenGraph. 1200×1200 (cuadrado) es seguro para todos los crawlers.
+  | "og";          // 1200×1200 JPG — para og:image y twitter:image
 
 const VARIANTS: Record<ImgVariant, string> = {
   card:          "w_600,h_600,c_fill,g_auto,q_auto,f_auto",
@@ -41,6 +44,7 @@ const VARIANTS: Record<ImgVariant, string> = {
   "tile-1-1":    "w_1200,h_1200,c_fill,g_auto,q_auto,f_auto",
   "tile-4-3":    "w_1600,h_1200,c_fill,g_auto,q_auto,f_auto",
   "tile-16-9":   "w_1920,h_1080,c_fill,g_auto,q_auto,f_auto",
+  og:            "w_1200,h_1200,c_fill,g_auto,q_auto,f_jpg",
 };
 
 /**
