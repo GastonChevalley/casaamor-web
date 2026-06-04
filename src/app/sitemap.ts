@@ -75,8 +75,10 @@ export default async function sitemap(): Promise<MetadataRoute.Sitemap> {
     });
   }
 
-  // 5) Filtros de categoría top + subcategoría (priority 0.6).
-  //    Útil para que Google indexe los listados por categoría, no solo el detalle.
+  // 5) Filtros de categoría top (priority 0.6).
+  //    Solo categorías top — las URLs de subcategoría (?cat=X&sub=Y) se
+  //    omiten porque el "&" rompe la validez XML del sitemap. Google las
+  //    descubre crawleando desde /productos?cat=X igualmente.
   for (const cat of categorias) {
     if (!cat.slug) continue;
     entries.push({
@@ -85,17 +87,6 @@ export default async function sitemap(): Promise<MetadataRoute.Sitemap> {
       changeFrequency: "weekly",
       priority: 0.6,
     });
-    for (const hijo of cat.hijos || []) {
-      if (!hijo.slug) continue;
-      entries.push({
-        url: siteUrl(
-          `/productos?cat=${encodeURIComponent(cat.slug)}&sub=${encodeURIComponent(hijo.slug)}`,
-        ),
-        lastModified: now,
-        changeFrequency: "weekly",
-        priority: 0.5,
-      });
-    }
   }
 
   return entries;
