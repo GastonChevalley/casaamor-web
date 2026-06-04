@@ -1,5 +1,6 @@
 import type { Metadata } from "next";
 import "./globals.css";
+import { GoogleAnalytics } from "@next/third-parties/google";
 import { Header } from "../components/Header";
 import { Footer } from "../components/Footer";
 import { WhatsappButton } from "../components/WhatsappButton";
@@ -145,6 +146,10 @@ export default async function RootLayout({
     },
   };
 
+  // Google Analytics 4 — solo renderiza si está la env var NEXT_PUBLIC_GA_ID.
+  // Cuando no está (preview deploys, dev local sin .env): no se inyecta el script.
+  const gaId = (process.env.NEXT_PUBLIC_GA_ID || "").trim();
+
   return (
     <html
       lang="es-AR"
@@ -180,6 +185,7 @@ export default async function RootLayout({
           categorias={isTrueStr(config.nav_categorias_en_footer) ? categorias : null}
         />
         <WhatsappButton telefono={config.contacto_whatsapp} />
+        {gaId && <GoogleAnalytics gaId={gaId} />}
       </body>
     </html>
   );

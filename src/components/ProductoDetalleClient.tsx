@@ -9,6 +9,7 @@ import {
 import type { Producto, ConfigWeb, Variante } from "@/lib/api";
 import { ProductoGaleria } from "@/components/ProductoGaleria";
 import { renderMarkdownSeguro } from "@/lib/sanitize";
+import { trackWhatsappClick } from "@/lib/analytics";
 
 function fmtMonto(n: number): string {
   return "$" + Math.round(Number(n) || 0).toLocaleString("es-AR");
@@ -224,6 +225,14 @@ export function ProductoDetalleClient({
             href={waLink}
             target="_blank"
             rel="noopener noreferrer"
+            onClick={() =>
+              trackWhatsappClick({
+                sku: skuParaMensaje,
+                nombre: productoLabel,
+                precio: precioEftFinal,
+                variante: varianteActual?.valor || "",
+              })
+            }
             className="mt-6 inline-flex items-center justify-center gap-2 w-full text-center bg-burgundy hover:bg-burgundy-dark text-cream-light font-semibold py-3 px-6 rounded-lg transition-colors"
           >
             <MessageCircle size={18} /> Consultar por WhatsApp

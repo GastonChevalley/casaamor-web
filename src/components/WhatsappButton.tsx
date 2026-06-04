@@ -1,4 +1,7 @@
+"use client";
+
 import { safePhone } from "../lib/sanitize";
+import { trackWhatsappFloatingClick } from "../lib/analytics";
 
 export function WhatsappButton({ telefono }: { telefono?: string }) {
   const phone = safePhone(telefono);
@@ -9,6 +12,7 @@ export function WhatsappButton({ telefono }: { telefono?: string }) {
       href={url}
       target="_blank"
       rel="noopener noreferrer"
+      onClick={() => trackWhatsappFloatingClick()}
       aria-label="Consultar por WhatsApp"
       className="fixed bottom-5 right-5 z-30 size-14 rounded-full bg-[#25D366] hover:bg-[#1da851] shadow-2xl shadow-black/30 flex items-center justify-center text-white transition-transform hover:scale-105"
     >
