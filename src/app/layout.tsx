@@ -54,6 +54,13 @@ export async function generateMetadata(): Promise<Metadata> {
         "max-snippet": -1,
       },
     },
+    // Verificación de propiedad para Google Search Console.
+    // Renderiza <meta name="google-site-verification" content="..."> en <head>.
+    // Necesario porque @next/third-parties inyecta gtag async y GSC no detecta
+    // el script para verificar con el método de Google Analytics.
+    verification: {
+      google: "mzSSKntKWoRDifBoDjfy7l9dpMpZ9Aae8i_jGQPiwPw",
+    },
     icons: {
       icon: "/logo-512.png",
       apple: "/logo-512.png",
