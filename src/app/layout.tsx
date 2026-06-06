@@ -9,6 +9,7 @@ import { MarqueeFijo } from "../components/MarqueeFijo";
 import { obtenerConfigWeb, obtenerMenu, obtenerCategorias, isTrueStr } from "../lib/api";
 import { todasLasFontsClassName, fontVarPorId } from "../lib/fonts";
 import { SITE_URL } from "../lib/site";
+import { CartProvider } from "../contexts/CartContext";
 
 export async function generateMetadata(): Promise<Metadata> {
   const config = await obtenerConfigWeb();
@@ -174,25 +175,27 @@ export default async function RootLayout({
         />
       </head>
       <body className="min-h-full flex flex-col bg-cream-light text-ink">
-        <MarqueeFijo
-          activo={config.marquee_global_activo}
-          textosRaw={config.marquee_global_textos}
-          color={config.marquee_global_color}
-        />
-        <Header
-          config={config}
-          menu={menu}
-          categoriasInline={navPos === "inline" ? categorias : null}
-        />
-        {navPos === "abajo" && <CategoriaNav categorias={categorias} />}
-        <main className="flex-1">{children}</main>
-        <Footer
-          config={config}
-          menu={menu}
-          categorias={isTrueStr(config.nav_categorias_en_footer) ? categorias : null}
-        />
-        <WhatsappButton telefono={config.contacto_whatsapp} />
-        {gaId && <GoogleAnalytics gaId={gaId} />}
+        <CartProvider>
+          <MarqueeFijo
+            activo={config.marquee_global_activo}
+            textosRaw={config.marquee_global_textos}
+            color={config.marquee_global_color}
+          />
+          <Header
+            config={config}
+            menu={menu}
+            categoriasInline={navPos === "inline" ? categorias : null}
+          />
+          {navPos === "abajo" && <CategoriaNav categorias={categorias} />}
+          <main className="flex-1">{children}</main>
+          <Footer
+            config={config}
+            menu={menu}
+            categorias={isTrueStr(config.nav_categorias_en_footer) ? categorias : null}
+          />
+          <WhatsappButton telefono={config.contacto_whatsapp} />
+          {gaId && <GoogleAnalytics gaId={gaId} />}
+        </CartProvider>
       </body>
     </html>
   );

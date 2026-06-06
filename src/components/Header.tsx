@@ -7,6 +7,7 @@ import { HeaderCategoriasNav } from "./HeaderCategoriasNav";
 import { HeaderSearch } from "./HeaderSearch";
 import { MobileNav } from "./MobileNav";
 import { UserMenu } from "./UserMenu";
+import { CartIcon } from "./CartIcon";
 
 function esTrueStr(v: unknown): boolean {
   if (v === true) return true;
@@ -101,8 +102,11 @@ export function Header({
             </nav>
           )}
 
-          {/* Icono Usuario: a la derecha tanto mobile como desktop */}
-          <UserMenu />
+          {/* Carrito + Usuario: a la derecha tanto mobile como desktop */}
+          <div className="flex items-center gap-1">
+            <CartIcon />
+            <UserMenu />
+          </div>
         </div>
 
         {/* SECOND ROW MOBILE: buscador full-width */}

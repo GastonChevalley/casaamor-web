@@ -4,12 +4,13 @@ import Link from "next/link";
 import { useState, useMemo, useEffect } from "react";
 import { useRouter, useSearchParams } from "next/navigation";
 import {
-  ArrowRight, MessageCircle, CreditCard, Truck, Ruler, ChevronDown
+  ArrowRight, MessageCircle, CreditCard, Truck, Ruler, ChevronDown, ShoppingBag, Check
 } from "lucide-react";
 import type { Producto, ConfigWeb, Variante } from "@/lib/api";
 import { ProductoGaleria } from "@/components/ProductoGaleria";
 import { renderMarkdownSeguro } from "@/lib/sanitize";
-import { trackWhatsappClick } from "@/lib/analytics";
+import { trackWhatsappClick, trackEvent } from "@/lib/analytics";
+import { useCart } from "@/contexts/CartContext";
 
 function fmtMonto(n: number): string {
   return "$" + Math.round(Number(n) || 0).toLocaleString("es-AR");
@@ -117,6 +118,32 @@ export function ProductoDetalleClient({
     router.replace(`?${params.toString()}`, { scroll: false });
   }
 
+  // Carrito
+  const { agregar } = useCart();
+  const [agregadoFeedback, setAgregadoFeedback] = useState(false);
+  const hayStock = (datos.stock || 0) > 0;
+
+  function onAgregarAlCarrito() {
+    if (!hayStock) return;
+    agregar({
+      sku: skuParaMensaje,
+      nombre: producto.nombre,
+      variante: varianteActual?.valor || "",
+      precioUnit: precioEftFinal,
+      fotoUrl: datos.fotos[0],
+      slug: producto.sku,
+    });
+    trackEvent("add_to_cart", {
+      sku: skuParaMensaje,
+      nombre: producto.nombre,
+      precio: precioEftFinal,
+      variante: varianteActual?.valor || "",
+    });
+    // Feedback visual: cambiar el botón a "Agregado ✓" durante 2 segundos.
+    setAgregadoFeedback(true);
+    window.setTimeout(() => setAgregadoFeedback(false), 2000);
+  }
+
   const stock = Number(datos.stock) || 0;
 
   return (
@@ -219,7 +246,32 @@ export function ProductoDetalleClient({
           </div>
         )}
 
-        {/* CTA WhatsApp */}
+        {/* CTA Carrito (primario) */}
+        <button
+          type="button"
+          onClick={onAgregarAlCarrito}
+          disabled={!hayStock}
+          className={`mt-6 inline-flex items-center justify-center gap-2 w-full text-center font-semibold py-3 px-6 rounded-lg transition-colors ${
+            !hayStock
+              ? "bg-burgundy/30 text-cream-light/60 cursor-not-allowed"
+              : agregadoFeedback
+                ? "bg-emerald-700 hover:bg-emerald-800 text-cream-light"
+                : "bg-burgundy hover:bg-burgundy-dark text-cream-light"
+          }`}
+        >
+          {agregadoFeedback ? (
+            <>
+              <Check size={18} /> Agregado al carrito
+            </>
+          ) : (
+            <>
+              <ShoppingBag size={18} />
+              {hayStock ? "Agregar al carrito" : "Sin stock"}
+            </>
+          )}
+        </button>
+
+        {/* CTA WhatsApp (secundario, para consultas) */}
         {waLink && (
           <a
             href={waLink}
@@ -233,7 +285,7 @@ export function ProductoDetalleClient({
                 variante: varianteActual?.valor || "",
               })
             }
-            className="mt-6 inline-flex items-center justify-center gap-2 w-full text-center bg-burgundy hover:bg-burgundy-dark text-cream-light font-semibold py-3 px-6 rounded-lg transition-colors"
+            className="mt-3 inline-flex items-center justify-center gap-2 w-full text-center bg-cream-light hover:bg-cream text-burgundy border border-burgundy/20 font-semibold py-3 px-6 rounded-lg transition-colors"
           >
             <MessageCircle size={18} /> Consultar por WhatsApp
           </a>
