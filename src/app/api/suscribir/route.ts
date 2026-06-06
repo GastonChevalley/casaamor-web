@@ -1,4 +1,10 @@
 import { NextResponse, type NextRequest } from "next/server";
+import { checkRateLimit, getClientIp, rateLimitHeaders } from "@/lib/ratelimit";
+
+// Rate limit: 5 suscripciones por minuto por IP. Suficiente para uso humano
+// real (1-2 por sesión) y blokea bots que floodean la hoja Suscriptores.
+const SUSCRIBIR_LIMIT = 5;
+const SUSCRIBIR_WINDOW_MS = 60 * 1000;
 
 /**
  * POST /api/suscribir → proxy al endpoint Apps Script para suscripciones
@@ -6,8 +12,21 @@ import { NextResponse, type NextRequest } from "next/server";
  *
  * Body: { email: string, origen?: string }
  * Response: { ok: true, status: 'nuevo' | 'ya_suscripto' } | { error: string }
+ *
+ * Auth: rate limit por IP (5/min). Sin token publico — el endpoint solo
+ * inserta en hoja Suscriptores (no expone data sensible).
  */
 export async function POST(req: NextRequest) {
+  // Rate limit por IP antes de cualquier trabajo.
+  const ip = getClientIp(req);
+  const rl = checkRateLimit(`suscribir:${ip}`, SUSCRIBIR_LIMIT, SUSCRIBIR_WINDOW_MS);
+  if (!rl.ok) {
+    return NextResponse.json(
+      { error: "rate_limit_exceeded", retryAt: rl.resetAt },
+      { status: 429, headers: rateLimitHeaders(SUSCRIBIR_LIMIT, rl) },
+    );
+  }
+
   let body: { email?: string; origen?: string } = {};
   try {
     body = await req.json();
@@ -40,13 +59,14 @@ export async function POST(req: NextRequest) {
       cache: "no-store",
     });
     const data = await r.json().catch(() => ({ error: "bad_response" }));
+    const headers = rateLimitHeaders(SUSCRIBIR_LIMIT, rl);
     if (!r.ok || data.error) {
       return NextResponse.json(
         { error: data.error || "upstream_error" },
-        { status: r.status || 502 },
+        { status: r.status || 502, headers },
       );
     }
-    return NextResponse.json(data);
+    return NextResponse.json(data, { headers });
   } catch (err) {
     return NextResponse.json(
       { error: err instanceof Error ? err.message : "unknown" },
