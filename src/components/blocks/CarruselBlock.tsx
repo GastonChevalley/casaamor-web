@@ -9,18 +9,32 @@ import { cloudinaryUrl } from "@/lib/img";
 
 export type CarruselBlockConfig = {
   titulo?: string;
-  imagenes?: Array<{ url: string; alt?: string; caption?: string; link?: string }>;
+  imagenes?: Array<{
+    /** Imagen para desktop (obligatoria) — formato 16:9 horizontal */
+    url: string;
+    /** Imagen para mobile (opcional) — formato 4:5 vertical estilo Instagram.
+     *  Si no se setea, mobile usa `url` (desktop) recortada automáticamente. */
+    urlMobile?: string;
+    alt?: string;
+    caption?: string;
+    link?: string;
+  }>;
   autoplay?: boolean;          // default true
   intervaloMs?: number;        // default 4000
   mostrarIndicadores?: boolean; // default true
   mostrarFlechas?: boolean;    // default true
-  altura?: "sm" | "md" | "lg"; // aspect ratio del slide
+  /** Altura: solo cambia el tamaño absoluto. El aspect ratio es siempre
+   *  el mismo (16:9 desktop, 4:5 mobile) para garantizar uniformidad. */
+  altura?: "sm" | "md" | "lg";
 };
 
+// Todas las alturas usan el MISMO aspect ratio (Addendum 88 — fix carrusel).
+// Solo cambia el tamaño absoluto (max-height en desktop). Esto evita que la
+// dueña tenga que pensar en formatos distintos por altura.
 const ALTURA_CLASSES: Record<NonNullable<CarruselBlockConfig["altura"]>, string> = {
-  sm: "aspect-[16/9] sm:aspect-[21/9]",
-  md: "aspect-[4/3] sm:aspect-[16/9]",
-  lg: "aspect-[3/4] sm:aspect-[16/10]",
+  sm: "aspect-[4/5] sm:aspect-[16/9] sm:max-h-[360px]",
+  md: "aspect-[4/5] sm:aspect-[16/9] sm:max-h-[560px]",
+  lg: "aspect-[4/5] sm:aspect-[16/9] sm:max-h-[720px]",
 };
 
 export function CarruselBlock({ config }: { config: CarruselBlockConfig }) {
@@ -77,13 +91,26 @@ export function CarruselBlock({ config }: { config: CarruselBlockConfig }) {
                     className={`relative ${altura} bg-cream flex-[0_0_100%] min-w-0`}
                     key={`slide-${i}`}
                   >
-                    {/* eslint-disable-next-line @next/next/no-img-element */}
-                    <img
-                      src={cloudinaryUrl(img.url, "carrusel")}
-                      alt={img.alt || ""}
-                      className="absolute inset-0 w-full h-full object-cover"
-                      loading={i === 0 ? "eager" : "lazy"}
-                    />
+                    {/*
+                      `<picture>` con `<source media>` sirve la versión mobile (4:5)
+                      en pantallas <=768px y la desktop (16:9) en el resto.
+                      Si no hay urlMobile, mobile cae a Cloudinary recortando la
+                      desktop con g_auto. Mejor opción posible sin obligar a la
+                      dueña a subir 2 imágenes siempre.
+                    */}
+                    <picture>
+                      <source
+                        media="(max-width: 768px)"
+                        srcSet={cloudinaryUrl(img.urlMobile || img.url, "carrusel-mobile")}
+                      />
+                      {/* eslint-disable-next-line @next/next/no-img-element */}
+                      <img
+                        src={cloudinaryUrl(img.url, "carrusel")}
+                        alt={img.alt || ""}
+                        className="absolute inset-0 w-full h-full object-cover"
+                        loading={i === 0 ? "eager" : "lazy"}
+                      />
+                    </picture>
                     {img.caption && (
                       <div className="absolute bottom-0 left-0 right-0 bg-gradient-to-t from-burgundy/80 to-transparent text-cream-light p-4 sm:p-6">
                         <p className="font-heading text-lg sm:text-xl">{safeText(img.caption)}</p>

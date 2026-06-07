@@ -21,7 +21,8 @@ export type ImgVariant =
   | "card-mobile"  // 400×400 — productos en grid mobile
   | "detail"       // 1200×1200 — detalle de producto
   | "hero"         // 1920×1080 — hero full-width (banner)
-  | "carrusel"     // 1600×900 — slides de carrusel (banner)
+  | "carrusel"     // 1600×900 — slides de carrusel desktop (16:9)
+  | "carrusel-mobile" // 1200×1500 — slides de carrusel mobile (4:5 estilo Instagram)
   | "galeria"      // 800×800 — items de galería
   | "thumb"        // 200×200 — thumbnails
   // Tile variants para CategoriasTilesBlock — entregan la foto YA en el aspect
@@ -37,8 +38,9 @@ const VARIANTS: Record<ImgVariant, string> = {
   card:          "w_600,h_600,c_fill,g_auto,q_auto,f_auto",
   "card-mobile": "w_400,h_400,c_fill,g_auto,q_auto,f_auto",
   detail:        "w_1200,h_1200,c_fill,g_auto,q_auto,f_auto",
-  hero:          "w_1920,h_1080,c_fill,g_auto,q_auto,f_auto",
-  carrusel:      "w_1600,h_900,c_fill,g_auto,q_auto,f_auto",
+  hero:               "w_1920,h_1080,c_fill,g_auto,q_auto,f_auto",
+  carrusel:           "w_1600,h_900,c_fill,g_auto,q_auto,f_auto",
+  "carrusel-mobile":  "w_1200,h_1500,c_fill,g_auto,q_auto,f_auto",
   galeria:       "w_800,h_800,c_fill,g_auto,q_auto,f_auto",
   thumb:         "w_200,h_200,c_fill,g_auto,q_auto,f_auto",
   "tile-1-1":    "w_1200,h_1200,c_fill,g_auto,q_auto,f_auto",
