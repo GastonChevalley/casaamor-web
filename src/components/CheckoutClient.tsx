@@ -4,10 +4,29 @@ import { useState, useMemo, useEffect } from "react";
 import Link from "next/link";
 import { useRouter } from "next/navigation";
 import { ArrowLeft, ShoppingBag, Loader2 } from "lucide-react";
+import { initMercadoPago, Payment } from "@mercadopago/sdk-react";
 import type { ConfigWeb } from "@/lib/api";
 import { useCart } from "@/contexts/CartContext";
 import { fmtMonto } from "@/lib/cart";
 import { trackEvent } from "@/lib/analytics";
+
+const MP_PUBLIC_KEY = (process.env.NEXT_PUBLIC_MP_PUBLIC_KEY || "").trim();
+const MP_ENABLED = MP_PUBLIC_KEY.length > 0;
+
+// Inicializar SDK MP una sola vez en el cliente. initMercadoPago es no-op si
+// la key está vacía — defensa en profundidad para no romper si falta env var.
+let mpInited = false;
+function asegurarMPInit(): boolean {
+  if (mpInited) return true;
+  if (!MP_ENABLED) return false;
+  try {
+    initMercadoPago(MP_PUBLIC_KEY, { locale: "es-AR" });
+    mpInited = true;
+    return true;
+  } catch {
+    return false;
+  }
+}
 
 /**
  * Página de checkout.
@@ -40,6 +59,12 @@ export function CheckoutClient({ config }: { config: ConfigWeb }) {
   });
   const [enviando, setEnviando] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  const [preferenceId, setPreferenceId] = useState<string | null>(null);
+
+  // Asegurar SDK MP inicializado del lado cliente
+  useEffect(() => {
+    asegurarMPInit();
+  }, []);
 
   // Si el carrito queda vacío (eliminados todos los items mientras está en /checkout),
   // redirigir suavemente al catálogo.
@@ -97,16 +122,58 @@ export function CheckoutClient({ config }: { config: ConfigWeb }) {
       return;
     }
     setEnviando(true);
-    // Placeholder hasta B.1.8: simular fallback al WhatsApp.
-    // Cuando llegue MP, este handler hace POST a /api/mp/create-preference
-    // y monta el Payment Brick.
     trackEvent("add_payment_info", { total: totalConEnvio });
-    setTimeout(() => {
+
+    // Si MP no está configurado (env var falta), fallback al WhatsApp.
+    if (!MP_ENABLED) {
+      setTimeout(() => {
+        setEnviando(false);
+        setError(
+          "El pago online está en activación. Por ahora coordinamos la compra por WhatsApp con los datos que cargaste. Tocá el botón verde para finalizar.",
+        );
+      }, 400);
+      return;
+    }
+
+    // Crear preference MP server-side con los items + datos cliente
+    try {
+      const r = await fetch("/api/mp/create-preference", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          items: items.map((it) => ({
+            sku: it.sku,
+            nombre: it.nombre,
+            cantidad: it.cantidad,
+            precioUnit: it.precioUnit,
+            variante: it.variante,
+          })),
+          cliente: {
+            nombre: form.nombre,
+            email: form.email,
+            telefono: form.telefono,
+            direccion: form.envio !== "showroom" ? form.direccion : "",
+            ciudad: form.envio !== "showroom" ? form.ciudad : "",
+            codigoPostal: form.envio !== "showroom" ? form.codigoPostal : "",
+            notas: form.notas,
+          },
+          envio: form.envio,
+        }),
+      });
+      const data = await r.json();
       setEnviando(false);
-      setError(
-        "El pago online está en activación. Por ahora coordinamos la compra por WhatsApp con los datos que cargaste. Tocá el botón verde para finalizar.",
-      );
-    }, 600);
+      if (!r.ok || !data?.ok || !data.preferenceId) {
+        setError(
+          data?.message ||
+            "No pudimos iniciar el pago. Intentá de nuevo o coordiná por WhatsApp.",
+        );
+        return;
+      }
+      setPreferenceId(data.preferenceId as string);
+    } catch {
+      setEnviando(false);
+      setError("Error de red. Verificá tu conexión e intentá de nuevo.");
+    }
   }
 
   if (!hidratado) {
@@ -243,18 +310,74 @@ export function CheckoutClient({ config }: { config: ConfigWeb }) {
             </Campo>
           </section>
 
-          {/* Pago — placeholder hasta B.1.8 */}
+          {/* Pago — Payment Brick de Mercado Pago */}
           <section className="border border-burgundy/10 rounded-xl bg-cream/30 p-5 sm:p-6">
             <h2 className="font-heading text-xl text-burgundy mb-2">Pago</h2>
             <p className="text-sm text-ink/70 mb-4">
-              Vas a poder pagar con tarjeta de crédito, débito, transferencia o efectivo (Rapipago /
-              Pago Fácil) — todo a través de Mercado Pago. <strong>Cuotas sin interés disponibles.</strong>
+              Pagá con tarjeta de crédito, débito, transferencia o efectivo (Rapipago / Pago Fácil) —
+              todo a través de Mercado Pago. <strong>3 cuotas sin interés disponibles.</strong>
             </p>
-            <div className="rounded-lg bg-gold/10 border border-gold/30 p-4 text-sm text-ink/80">
-              💡 <strong>El pago online está en activación.</strong> Mientras tanto, coordinamos la
-              compra por WhatsApp con tus datos. Cuando esté listo (en pocos días), vas a poder
-              completar la compra sin salir del sitio.
-            </div>
+
+            {/* Si MP no está configurado (env var falta), mostrar fallback informativo. */}
+            {!MP_ENABLED && (
+              <div className="rounded-lg bg-gold/10 border border-gold/30 p-4 text-sm text-ink/80">
+                💡 <strong>El pago online está en activación.</strong> Mientras tanto, coordinamos la
+                compra por WhatsApp con tus datos.
+              </div>
+            )}
+
+            {/* Cuando hay preferenceId, montar el Payment Brick. */}
+            {MP_ENABLED && preferenceId && (
+              <div className="mt-4">
+                <Payment
+                  initialization={{
+                    amount: totalConEnvio,
+                    preferenceId: preferenceId,
+                  }}
+                  customization={{
+                    paymentMethods: {
+                      creditCard: "all",
+                      debitCard: "all",
+                      mercadoPago: "all",
+                      ticket: "all",
+                      bankTransfer: "all",
+                      maxInstallments: 3,
+                    },
+                    visual: {
+                      style: {
+                        theme: "default",
+                        customVariables: {
+                          baseColor: "var(--brand-burgundy)",
+                        },
+                      },
+                    },
+                  }}
+                  onSubmit={async () => {
+                    // El Brick maneja el flujo internamente cuando hay preferenceId.
+                    // Aquí solo trackeamos y dejamos que MP redirija a back_urls.
+                    trackEvent("payment_brick_submit", {
+                      preference_id: preferenceId,
+                      total: totalConEnvio,
+                    });
+                  }}
+                  onError={(err) => {
+                    console.error("[mp brick] error", err);
+                    setError("Error al cargar el medio de pago. Refrescá la página o coordiná por WhatsApp.");
+                  }}
+                  onReady={() => {
+                    // Brick montado y listo
+                  }}
+                />
+              </div>
+            )}
+
+            {/* Cuando MP está configurado pero todavía no hay preferenceId, mostrar instrucción. */}
+            {MP_ENABLED && !preferenceId && (
+              <div className="rounded-lg bg-cream-light border border-burgundy/15 p-4 text-sm text-ink/70">
+                Completá los datos arriba y tocá <strong>Confirmar y pagar</strong> para elegir el
+                medio de pago.
+              </div>
+            )}
           </section>
         </div>
 

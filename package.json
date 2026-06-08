@@ -9,6 +9,7 @@
     "lint": "eslint"
   },
   "dependencies": {
+    "@mercadopago/sdk-react": "^1.0.7",
     "@next/third-parties": "^16.2.7",
     "@radix-ui/react-navigation-menu": "^1.2.14",
     "embla-carousel-autoplay": "^8.6.0",
