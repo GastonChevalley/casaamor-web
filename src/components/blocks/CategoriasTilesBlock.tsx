@@ -27,10 +27,18 @@ export type CategoriasTilesBlockConfig = {
   /**
    * Color del degradado overlay sobre cada tile (afecta legibilidad del nombre).
    * Opciones: 'burgundy' (default actual), 'gris' (negro con transparencia),
-   * 'gold', 'rose', 'ink' (gris oscuro intenso). Mantienen el mismo nivel de
-   * intensidad del degradé original — solo cambia el color.
+   * 'gold', 'rose', 'ink' (gris oscuro intenso).
    */
   degradeColor?: "burgundy" | "gris" | "gold" | "rose" | "ink";
+  /**
+   * Intensidad del degradado overlay. Define qué tan oscuro queda sobre la foto.
+   * Default: 'fuerte' (comportamiento previo). Más opciones:
+   * - 'suave': apenas perceptible, foto al 100%.
+   * - 'medio': balance entre legibilidad y foto.
+   * - 'fuerte': bien legible (default).
+   * - 'muy_fuerte': máximo contraste, foto algo oculta.
+   */
+  degradeIntensidad?: "suave" | "medio" | "fuerte" | "muy_fuerte";
 };
 
 /**
@@ -64,6 +72,11 @@ export async function CategoriasTilesBlock({
       ? config.degradeColor
       : "burgundy"
   ) as "burgundy" | "gris" | "gold" | "rose" | "ink";
+  const intensidadKey = (
+    ["suave", "medio", "fuerte", "muy_fuerte"].includes(config.degradeIntensidad || "")
+      ? config.degradeIntensidad
+      : "fuerte"
+  ) as "suave" | "medio" | "fuerte" | "muy_fuerte";
 
   // Mapa slug → { ref, slugMadre? } para resolver tanto top como sub.
   // Indexar el árbol una sola vez (~25 categorías típico).
@@ -136,17 +149,43 @@ export async function CategoriasTilesBlock({
     "tile-4-3"
   );
 
-  // Degradado overlay (Addendum 78): los stops /85 → /55 → /0 mantienen la
-  // "personalidad" del degradé original con un poco más de oscuridad en la
-  // zona media para mejorar contraste con el texto (que ahora vive más abajo).
+  // Degradado overlay (Addendum 78 + intensidad Addendum 89): cada color tiene
+  // 4 niveles de intensidad. Los stops están enumerados como strings literales
+  // para que Tailwind los purgue correctamente (no se pueden construir clases
+  // dinámicas — Tailwind solo encuentra lo que ve como string en el código).
   const DEGRADE_PRESETS = {
-    burgundy: "from-burgundy/85 via-burgundy/55 to-transparent",
-    gris:     "from-black/85 via-black/55 to-transparent",
-    gold:     "from-gold-dark/85 via-gold-dark/55 to-transparent",
-    rose:     "from-rose/85 via-rose/55 to-transparent",
-    ink:      "from-ink/90 via-ink/55 to-transparent",
+    burgundy: {
+      suave:      "from-burgundy/40 via-burgundy/20 to-transparent",
+      medio:      "from-burgundy/60 via-burgundy/35 to-transparent",
+      fuerte:     "from-burgundy/85 via-burgundy/55 to-transparent",
+      muy_fuerte: "from-burgundy/95 via-burgundy/70 to-transparent",
+    },
+    gris: {
+      suave:      "from-black/40 via-black/20 to-transparent",
+      medio:      "from-black/60 via-black/35 to-transparent",
+      fuerte:     "from-black/85 via-black/55 to-transparent",
+      muy_fuerte: "from-black/95 via-black/70 to-transparent",
+    },
+    gold: {
+      suave:      "from-gold-dark/40 via-gold-dark/20 to-transparent",
+      medio:      "from-gold-dark/60 via-gold-dark/35 to-transparent",
+      fuerte:     "from-gold-dark/85 via-gold-dark/55 to-transparent",
+      muy_fuerte: "from-gold-dark/95 via-gold-dark/70 to-transparent",
+    },
+    rose: {
+      suave:      "from-rose/40 via-rose/20 to-transparent",
+      medio:      "from-rose/60 via-rose/35 to-transparent",
+      fuerte:     "from-rose/85 via-rose/55 to-transparent",
+      muy_fuerte: "from-rose/95 via-rose/70 to-transparent",
+    },
+    ink: {
+      suave:      "from-ink/40 via-ink/20 to-transparent",
+      medio:      "from-ink/60 via-ink/35 to-transparent",
+      fuerte:     "from-ink/90 via-ink/55 to-transparent",
+      muy_fuerte: "from-ink/95 via-ink/70 to-transparent",
+    },
   } as const;
-  const gradientClass = DEGRADE_PRESETS[degradeKey];
+  const gradientClass = DEGRADE_PRESETS[degradeKey][intensidadKey];
 
   return (
     <section className="max-w-6xl mx-auto px-6 sm:px-10 py-16">
