@@ -34,20 +34,24 @@ export function Header({
   return (
     <header className="sticky top-0 z-20 bg-burgundy text-cream-light shadow-md">
       <div className="max-w-6xl mx-auto px-4 sm:px-6">
-        {/* TOP BAR: distribución TN-style */}
+        {/* TOP BAR: distribución TN-style.
+            Mobile: 3 columnas con flex-1 a izq/der para centrar el logo
+            exactamente en el viewport (sin esto el mx-auto del logo lo
+            corría a la derecha por la asimetría hamburger vs cart+user). */}
         <div className="flex items-center gap-3 sm:gap-4 py-3">
-          {/* === MOBILE: hamburger izq | logo centrado | user der === */}
-          <div className="md:hidden">
+          {/* MOBILE column izq: hamburger ocupa 1/3 del ancho */}
+          <div className="md:hidden flex-1 flex justify-start">
             <MobileNav
               menu={menu}
               categorias={categoriasInline || null}
             />
           </div>
 
-          {/* Logo: centrado en mobile, izquierda en desktop */}
+          {/* Logo: centrado en mobile (gracias al flex-1 de los siblings),
+              izquierda en desktop. */}
           <Link
             href="/"
-            className="flex items-center gap-3 group shrink-0 mx-auto md:mx-0"
+            className="flex items-center gap-3 group shrink-0"
           >
             <Image
               src={logoUrl}
@@ -102,8 +106,16 @@ export function Header({
             </nav>
           )}
 
-          {/* Carrito + Usuario: a la derecha tanto mobile como desktop */}
-          <div className="flex items-center gap-1">
+          {/* MOBILE column der: cart+user ocupa 1/3 del ancho, alineado a la derecha */}
+          <div className="md:hidden flex-1 flex justify-end">
+            <div className="flex items-center gap-1">
+              <CartIcon />
+              <UserMenu />
+            </div>
+          </div>
+
+          {/* DESKTOP: cart+user pegado a la derecha sin flex-1 */}
+          <div className="hidden md:flex items-center gap-1">
             <CartIcon />
             <UserMenu />
           </div>

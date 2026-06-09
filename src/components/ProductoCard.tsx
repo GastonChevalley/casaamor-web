@@ -2,8 +2,10 @@
 
 import Link from "next/link";
 import { useEffect, useRef, useState } from "react";
+import { ShoppingBag, Check } from "lucide-react";
 import type { Producto } from "@/lib/api";
 import { cloudinaryUrl } from "@/lib/img";
+import { useCart } from "@/contexts/CartContext";
 
 function fmtMonto(n: number): string {
   return "$" + Math.round(Number(n) || 0).toLocaleString("es-AR");
@@ -52,9 +54,21 @@ export function ProductoCard({
   const styleKey = resolveEstilo(estilo);
   const cardClasses = CARD_STYLES[styleKey];
   const enOferta = !!producto.oferta && Number(producto.descOfertaPct) > 0;
-  const precioConOferta = enOferta
+  const precioEftConOferta = enOferta
     ? Math.round(producto.precioEft * (1 - producto.descOfertaPct / 100))
     : producto.precioEft;
+  const precioTnConOferta = enOferta
+    ? Math.round(producto.precioTn * (1 - producto.descOfertaPct / 100))
+    : producto.precioTn;
+
+  // Producto grupo con N>1 variantes: la card linkea al detalle, no permite
+  // quick-add (decidir variante desde el grid es alta fricción → Baymard).
+  const tieneVariantes = !!(producto.variantesCount && producto.variantesCount > 1);
+
+  // Dual pricing: si precioTn está >1% arriba del EFT, mostrar ambas líneas.
+  // Si son ~iguales (ej. producto no incluido en el modelo dual), solo EFT.
+  const mostrarDualPrecio =
+    !tieneVariantes && producto.precioTn > precioEftConOferta * 1.01;
 
   // Lista de fotos, con fallback a fotoUrl si fotos no llegó (backward-compat).
   const fotos = (producto.fotos && producto.fotos.length > 0)
@@ -84,6 +98,36 @@ export function ProductoCard({
       if (intervalRef.current) clearInterval(intervalRef.current);
     };
   }, []);
+
+  // Quick-add
+  const { agregar } = useCart();
+  const [agregado, setAgregado] = useState(false);
+  const agregadoTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+  useEffect(() => {
+    return () => {
+      if (agregadoTimerRef.current) clearTimeout(agregadoTimerRef.current);
+    };
+  }, []);
+
+  function onAgregar(e: React.MouseEvent) {
+    e.preventDefault();
+    e.stopPropagation();
+    if (tieneVariantes) return; // defensivo, el botón no debería estar visible
+    agregar({
+      sku: producto.sku,
+      nombre: producto.nombre,
+      variante: "",
+      precioUnit: precioEftConOferta,
+      precioUnitTn: precioTnConOferta,
+      fotoUrl: fotos[0],
+      slug: producto.sku,
+    });
+    setAgregado(true);
+    if (agregadoTimerRef.current) clearTimeout(agregadoTimerRef.current);
+    agregadoTimerRef.current = setTimeout(() => setAgregado(false), 1500);
+  }
+
+  const mostrarQuickAdd = !tieneVariantes && producto.stock > 0;
 
   return (
     <Link
@@ -131,35 +175,79 @@ export function ProductoCard({
         )}
       </div>
       <div className="p-4 sm:p-3 flex flex-col gap-2">
-        <p className="text-[10px] uppercase tracking-[0.15em] text-ink/40">
-          {producto.proveedor}
-        </p>
+        {/* Proveedor sacado del grid (ruido en boutique chica — Baymard).
+            Se mantiene solo en el detalle del producto. */}
         <h3 className="font-heading text-burgundy text-sm sm:text-base line-clamp-2 leading-snug min-h-[2.5em]">
           {producto.nombre}
         </h3>
         {/* Chip de variantes (grupo con N > 1) */}
-        {producto.variantesCount && producto.variantesCount > 1 && (
+        {tieneVariantes && (
           <p className="text-xs text-rose font-medium">
             {producto.variantesCount} {producto.varianteTipo === "talle" ? "talles" : producto.varianteTipo === "material" ? "materiales" : "colores"}
           </p>
         )}
+        {/* Bloque de precios */}
         <div className="flex flex-col gap-0.5">
-          {enOferta && (
+          {/* Tachado del EFT original cuando hay oferta (NO se muestra para grupo con rango) */}
+          {enOferta && !tieneVariantes && (
             <span className="text-xs text-ink/40 line-through">
               {fmtMonto(producto.precioEft)}
             </span>
           )}
+          {/* Grupo con variantes: "Desde $X" (no aplica dual pricing acá porque hay rango) */}
           {producto.precioEftMin != null && producto.precioEftMax != null && producto.precioEftMin !== producto.precioEftMax ? (
             <span className="text-xl sm:text-lg font-semibold text-burgundy">
               <span className="text-xs text-ink/60 font-normal">Desde </span>
               {fmtMonto(producto.precioEftMin)}
             </span>
           ) : (
-            <span className="text-xl sm:text-lg font-semibold text-burgundy">
-              {fmtMonto(precioConOferta)}
-            </span>
+            <>
+              {/* Precio EFT anchor: grande, semibold, burgundy.
+                  Label "efectivo/transferencia" al lado (solo si hay dual). */}
+              <div className="flex items-baseline gap-1.5 flex-wrap">
+                <span className="text-xl sm:text-lg font-semibold text-burgundy">
+                  {fmtMonto(precioEftConOferta)}
+                </span>
+                {mostrarDualPrecio && (
+                  <span className="text-[10px] uppercase tracking-wider text-ink/50">
+                    efectivo / transferencia
+                  </span>
+                )}
+              </div>
+              {/* Línea secundaria: precio TN + cuotas SI (sólo si dual pricing aplica). */}
+              {mostrarDualPrecio && (
+                <p className="text-xs text-ink/60 leading-snug">
+                  o {fmtMonto(precioTnConOferta)} en 3 cuotas s/ interés
+                </p>
+              )}
+            </>
           )}
         </div>
+
+        {/* Quick-add (solo productos sin variantes y con stock).
+            preventDefault + stopPropagation evita que el click navegue al detalle. */}
+        {mostrarQuickAdd && (
+          <button
+            type="button"
+            onClick={onAgregar}
+            aria-label={`Agregar ${producto.nombre} al carrito`}
+            className={`mt-1 w-full inline-flex items-center justify-center gap-1.5 rounded-lg font-semibold text-sm py-2.5 sm:py-2 transition-colors ${
+              agregado
+                ? "bg-emerald-700 text-cream-light"
+                : "bg-burgundy hover:bg-burgundy-dark text-cream-light"
+            }`}
+          >
+            {agregado ? (
+              <>
+                <Check size={16} /> Agregado
+              </>
+            ) : (
+              <>
+                <ShoppingBag size={16} /> Agregar al carrito
+              </>
+            )}
+          </button>
+        )}
       </div>
     </Link>
   );
