@@ -1,6 +1,6 @@
 "use client";
 
-import { useState, useMemo, useEffect, useRef } from "react";
+import { useState, useMemo, useEffect, useRef, useCallback, memo } from "react";
 import Link from "next/link";
 import { useRouter } from "next/navigation";
 import { ArrowLeft, ShoppingBag, Loader2 } from "lucide-react";
@@ -62,6 +62,14 @@ export function CheckoutClient({ config }: { config: ConfigWeb }) {
   const [enviando, setEnviando] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [preferenceId, setPreferenceId] = useState<string | null>(null);
+  // Snapshot del payer congelado en el momento de crear la preference.
+  // CRÍTICO: NO se lee del form en tiempo real porque eso dispararía
+  // re-renders del Brick en cada keystroke → bug de bricks duplicados.
+  const [payerSnapshot, setPayerSnapshot] = useState<{
+    email: string;
+    firstName: string;
+    lastName: string;
+  } | null>(null);
   const [brickListo, setBrickListo] = useState(false);
   const brickContainerRef = useRef<HTMLDivElement | null>(null);
 
@@ -70,10 +78,9 @@ export function CheckoutClient({ config }: { config: ConfigWeb }) {
     asegurarMPInit();
   }, []);
 
-  // Cleanup del Payment Brick al desmontar el componente o al cambiar de
-  // preferenceId. Sin esto, MP SDK puede dejar bricks huérfanos en el DOM
-  // y aparecen 2 bricks superpuestos (bug reportado 2026-06-09).
-  // Ver docs: https://www.mercadopago.com.co/developers/en/docs/checkout-bricks/additional-content/possible-errors
+  // Al desmontar CheckoutClient entero, intentar unmount del Brick por si
+  // quedó residual (defensa en profundidad — el cleanup principal vive en
+  // PaymentBrickIsolated). Esto cubre navigation fuera del checkout.
   useEffect(() => {
     return () => {
       try {
@@ -82,23 +89,14 @@ export function CheckoutClient({ config }: { config: ConfigWeb }) {
         };
         w.paymentBrickController?.unmount?.();
       } catch {
-        /* defensive: el SDK puede no estar cargado */
+        /* defensive */
       }
     };
   }, []);
 
-  // Si se resetea preferenceId (cambio de método, edición de datos, error)
-  // unmount explícito antes de que React intente montar uno nuevo.
+  // Reset estado del brick cuando se setea preferenceId a null (volver atrás).
   useEffect(() => {
     if (preferenceId === null) {
-      try {
-        const w = window as unknown as {
-          paymentBrickController?: { unmount?: () => void };
-        };
-        w.paymentBrickController?.unmount?.();
-      } catch {
-        /* noop */
-      }
       setBrickListo(false);
     }
   }, [preferenceId]);
@@ -147,6 +145,26 @@ export function CheckoutClient({ config }: { config: ConfigWeb }) {
     // Por ahora envío manual a coordinar (0). En B.2 esto consulta /api/envios/cotizar.
     return form.metodoPago === "mp" ? totalTn : total;
   }, [total, totalTn, form.metodoPago]);
+
+  // Callbacks estables para PaymentBrickIsolated — useCallback evita que las
+  // props cambien en cada render del padre y rompan la memoización del Brick.
+  const onBrickReady = useCallback(() => {
+    setBrickListo(true);
+  }, []);
+  const onBrickError = useCallback((err: unknown) => {
+    console.error("[mp brick] error", err);
+    setError(
+      "Hubo un problema al cargar el medio de pago. Tocá 'Editar datos' arriba y volvé a intentar, o coordiná por WhatsApp.",
+    );
+    setPreferenceId(null);
+    setPayerSnapshot(null);
+  }, []);
+  const onBrickSubmitTrack = useCallback(() => {
+    trackEvent("payment_brick_submit", {
+      preference_id: preferenceId,
+      total: totalConEnvio,
+    });
+  }, [preferenceId, totalConEnvio]);
 
   function actualizar<K extends keyof typeof form>(key: K, valor: (typeof form)[K]) {
     setForm((prev) => ({ ...prev, [key]: valor }));
@@ -265,6 +283,14 @@ export function CheckoutClient({ config }: { config: ConfigWeb }) {
         );
         return;
       }
+      // Snapshot del payer JUSTO antes de montar el Brick. A partir de acá
+      // el form puede cambiar (el cliente edita un campo) sin afectar al Brick.
+      const partes = form.nombre.trim().split(/\s+/);
+      setPayerSnapshot({
+        email: form.email.trim(),
+        firstName: partes[0] || "",
+        lastName: partes.slice(1).join(" ") || "",
+      });
       setPreferenceId(data.preferenceId as string);
     } catch {
       setEnviando(false);
@@ -498,6 +524,7 @@ export function CheckoutClient({ config }: { config: ConfigWeb }) {
                     type="button"
                     onClick={() => {
                       setPreferenceId(null);
+                      setPayerSnapshot(null);
                       setError(null);
                     }}
                     className="text-xs text-burgundy hover:text-gold underline inline-flex items-center gap-1 shrink-0"
@@ -506,7 +533,11 @@ export function CheckoutClient({ config }: { config: ConfigWeb }) {
                   </button>
                 </div>
 
-                {/* Container del brick con overlay de loading hasta onReady */}
+                {/* Container del brick con overlay de loading hasta onReady.
+                    El Brick está aislado en PaymentBrickIsolated (memo) y
+                    montado con key={preferenceId} → se desmonta y vuelve a
+                    montar SOLO cuando cambia la preference. Cualquier
+                    re-render del padre por tipeo en el form NO lo afecta. */}
                 <div className="relative min-h-[280px]">
                   {!brickListo && (
                     <div
@@ -517,51 +548,19 @@ export function CheckoutClient({ config }: { config: ConfigWeb }) {
                       <div className="text-sm text-burgundy/70">Cargando opciones de pago…</div>
                     </div>
                   )}
-                  <Payment
-                    initialization={{
-                      amount: totalConEnvio,
-                      preferenceId: preferenceId,
-                    }}
-                    customization={{
-                      paymentMethods: {
-                        creditCard: "all",
-                        debitCard: "all",
-                        mercadoPago: "all",
-                        // ticket (Rapipago / Pago Fácil) deshabilitado: el cliente que
-                        // quiere pagar en efectivo o transferencia directa lo hace por
-                        // la opción "Transferencia / efectivo en showroom" del selector
-                        // de arriba (precio EFT con 20% off, sin comisión MP).
-                        ticket: [],
-                        bankTransfer: "all",
-                        maxInstallments: 3,
-                      },
-                      visual: {
-                        style: {
-                          theme: "default",
-                          customVariables: {
-                            baseColor: "var(--brand-burgundy)",
-                          },
-                        },
-                      },
-                    }}
-                    onSubmit={async () => {
-                      trackEvent("payment_brick_submit", {
-                        preference_id: preferenceId,
-                        total: totalConEnvio,
-                      });
-                      // MP redirige automáticamente a back_urls según el resultado.
-                    }}
-                    onError={(err) => {
-                      console.error("[mp brick] error", err);
-                      setError(
-                        "Hubo un problema al cargar el medio de pago. Tocá 'Editar datos' arriba y volvé a intentar, o coordiná por WhatsApp.",
-                      );
-                      setPreferenceId(null);
-                    }}
-                    onReady={() => {
-                      setBrickListo(true);
-                    }}
-                  />
+                  {payerSnapshot && (
+                    <PaymentBrickIsolated
+                      key={preferenceId}
+                      preferenceId={preferenceId}
+                      amount={totalConEnvio}
+                      payerEmail={payerSnapshot.email}
+                      payerFirstName={payerSnapshot.firstName}
+                      payerLastName={payerSnapshot.lastName}
+                      onReady={onBrickReady}
+                      onError={onBrickError}
+                      onSubmitTrack={onBrickSubmitTrack}
+                    />
+                  )}
                 </div>
               </div>
             )}
@@ -696,6 +695,123 @@ export function CheckoutClient({ config }: { config: ConfigWeb }) {
     </div>
   );
 }
+
+/**
+ * Wrapper aislado del Payment Brick de MP.
+ *
+ * Crítico: este componente está MEMOIZADO y se monta con `key={preferenceId}`
+ * desde el padre. Sin esto, cada keystroke del form (email, nombre, etc.)
+ * re-renderea el CheckoutClient, lo que dispara un re-render del `<Payment />`
+ * con un `initialization` object nuevo cada vez, y el SDK de MP monta un
+ * segundo iframe sin desmontar el anterior — apareciendo 2 bricks superpuestos.
+ *
+ * El cleanup `window.paymentBrickController.unmount()` vive ACÁ, no en el padre,
+ * para que se dispare exactamente cuando este componente se desmonta (cambio
+ * de preferenceId o salida del checkout).
+ *
+ * Ver: https://www.mercadopago.com.co/developers/en/docs/checkout-bricks/additional-content/possible-errors
+ */
+type PaymentBrickProps = {
+  preferenceId: string;
+  amount: number;
+  payerEmail: string;
+  payerFirstName: string;
+  payerLastName: string;
+  onReady: () => void;
+  onError: (err: unknown) => void;
+  onSubmitTrack: () => void;
+};
+
+const PaymentBrickIsolated = memo(function PaymentBrickIsolated({
+  preferenceId,
+  amount,
+  payerEmail,
+  payerFirstName,
+  payerLastName,
+  onReady,
+  onError,
+  onSubmitTrack,
+}: PaymentBrickProps) {
+  // Cleanup específico del Brick al desmontar (cambio de preferenceId via
+  // key={preferenceId} en el padre, o salida del checkout).
+  useEffect(() => {
+    return () => {
+      try {
+        const w = window as unknown as {
+          paymentBrickController?: { unmount?: () => void };
+        };
+        w.paymentBrickController?.unmount?.();
+      } catch {
+        /* defensive */
+      }
+    };
+  }, []);
+
+  // initialization estable: estos valores vienen de props que son snapshot
+  // (no del form en tiempo real). Aún así memoizamos para evitar referencias
+  // nuevas en cada render del wrapper.
+  const initialization = useMemo(
+    () => ({
+      amount,
+      preferenceId,
+      payer: {
+        email: payerEmail,
+        firstName: payerFirstName,
+        lastName: payerLastName,
+      },
+    }),
+    [amount, preferenceId, payerEmail, payerFirstName, payerLastName],
+  );
+
+  const customization = useMemo(
+    () => ({
+      paymentMethods: {
+        creditCard: "all" as const,
+        debitCard: "all" as const,
+        mercadoPago: "all" as const,
+        // ticket (Rapipago / Pago Fácil) deshabilitado: si el cliente quiere
+        // pagar en efectivo / transferencia directa, usa la opción WhatsApp
+        // del selector de arriba (precio EFT con 20% off, sin comisión MP).
+        ticket: [] as never[],
+        bankTransfer: "all" as const,
+        maxInstallments: 3,
+      },
+      visual: {
+        style: {
+          theme: "default" as const,
+          customVariables: {
+            // Color de acento (botones, radio activo, etc).
+            baseColor: "var(--brand-burgundy)",
+            // Fondo del form del Brick — matchea el `bg-cream-light` del sitio.
+            formBackgroundColor: "var(--brand-cream-light)",
+            // Texto principal — usar el mismo "ink" de la paleta.
+            textPrimaryColor: "var(--brand-ink)",
+            // Borde sutil burgundy/15 para alinear con el resto del checkout.
+            outlinePrimaryColor: "rgba(124, 36, 64, 0.15)",
+            // Border-radius coherente con los cards del sitio (lg = 12px).
+            borderRadiusMedium: "12px",
+          },
+        },
+      },
+    }),
+    [],
+  );
+
+  const handleSubmit = useCallback(async () => {
+    onSubmitTrack();
+    // MP redirige automáticamente a back_urls según el resultado del pago.
+  }, [onSubmitTrack]);
+
+  return (
+    <Payment
+      initialization={initialization}
+      customization={customization}
+      onSubmit={handleSubmit}
+      onError={onError}
+      onReady={onReady}
+    />
+  );
+});
 
 const inputClass =
   "w-full rounded-md border border-burgundy/20 bg-cream-light px-3 py-2 text-ink placeholder:text-ink/30 focus:outline-none focus:ring-2 focus:ring-gold focus:border-transparent";
