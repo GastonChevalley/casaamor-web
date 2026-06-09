@@ -191,6 +191,18 @@ export function CheckoutClient({ config }: { config: ConfigWeb }) {
       const formData = args?.formData || {};
       const selected = args?.selectedPaymentMethod || "";
 
+      // Limpiar error previo si está intentando de nuevo
+      setError(null);
+
+      // eslint-disable-next-line no-console
+      console.log("[checkout] onSubmit recibido", {
+        selected,
+        hasToken: !!formData.token,
+        paymentMethodId: formData.payment_method_id,
+        installments: formData.installments,
+        amount: formData.transaction_amount,
+      });
+
       trackEvent("payment_brick_submit", {
         preference_id: preferenceId,
         selected_method: selected,
@@ -200,45 +212,82 @@ export function CheckoutClient({ config }: { config: ConfigWeb }) {
       // Sin token = método Wallet (Mercado Pago). El Brick redirige por su
       // cuenta usando preferenceId + back_urls. Nada que hacer acá.
       if (!formData.token) {
+        // eslint-disable-next-line no-console
+        console.log("[checkout] sin token, Wallet redirige por back_urls");
         return;
       }
 
       if (!externalRefSnapshot) {
-        throw new Error("Falta external reference. Recargá la página.");
+        const msg = "Falta external reference. Tocá 'Editar datos' y volvé a continuar al pago.";
+        setError(msg);
+        throw new Error(msg);
       }
 
       // Procesar tarjeta vía nuestro endpoint
-      const r = await fetch("/api/mp/process-payment", {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({
-          token: formData.token,
-          payment_method_id: formData.payment_method_id,
-          issuer_id: formData.issuer_id,
-          installments: formData.installments || 1,
-          transaction_amount: formData.transaction_amount || totalConEnvio,
-          payer: {
-            email: formData.payer?.email || payerSnapshot?.email,
-            identification: formData.payer?.identification,
-          },
-          externalReference: externalRefSnapshot,
-          description: `Compra CasaAmor (${items.length} ${items.length === 1 ? "ítem" : "ítems"})`,
-        }),
-      });
+      let r: Response;
+      try {
+        r = await fetch("/api/mp/process-payment", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          credentials: "include",
+          body: JSON.stringify({
+            token: formData.token,
+            payment_method_id: formData.payment_method_id,
+            issuer_id: formData.issuer_id,
+            installments: formData.installments || 1,
+            transaction_amount: formData.transaction_amount || totalConEnvio,
+            payer: {
+              email: formData.payer?.email || payerSnapshot?.email,
+              identification: formData.payer?.identification,
+            },
+            externalReference: externalRefSnapshot,
+            description: `Compra CasaAmor (${items.length} ${items.length === 1 ? "ítem" : "ítems"})`,
+          }),
+        });
+      } catch (err) {
+        // eslint-disable-next-line no-console
+        console.error("[checkout] fetch falló (red/CORS/SSO)", err);
+        const msg = "No pudimos contactar el servidor de pagos. Verificá tu conexión y reintentá.";
+        setError(msg);
+        throw new Error(msg);
+      }
 
-      const data = await r.json().catch(() => ({}));
+      // eslint-disable-next-line no-console
+      console.log("[checkout] response status", r.status);
+
+      const text = await r.text().catch(() => "");
+      let data: { ok?: boolean; message?: string; status?: string; paymentId?: string; statusDetail?: string; error?: string } = {};
+      try {
+        data = JSON.parse(text);
+      } catch {
+        // Si la respuesta no es JSON (ej. HTML de Vercel SSO o error de Next),
+        // mostramos algo útil en lugar de "tarjeta rechazada".
+        const isHtml = text.toLowerCase().includes("<!doctype html") || text.toLowerCase().includes("<html");
+        const msg = isHtml
+          ? "El servidor devolvió una página HTML en lugar de JSON (probablemente login Vercel o ruta inexistente). Avisame en pantalla."
+          : `Respuesta del servidor no es JSON (HTTP ${r.status}): ${text.slice(0, 200)}`;
+        setError(msg);
+        // eslint-disable-next-line no-console
+        console.error("[checkout] respuesta no-JSON", { status: r.status, body: text.slice(0, 500) });
+        throw new Error(msg);
+      }
 
       if (!r.ok || !data?.ok) {
-        // Tirar error → Brick muestra mensaje inline + permite reintentar
-        // con otra tarjeta sin perder el form ni la preference.
-        throw new Error(
-          data?.message || "No pudimos procesar el pago. Probá con otra tarjeta o coordiná por WhatsApp.",
-        );
+        const msg =
+          data?.message ||
+          data?.error ||
+          `Error HTTP ${r.status}. Probá con otra tarjeta o coordiná por WhatsApp.`;
+        // eslint-disable-next-line no-console
+        console.error("[checkout] backend devolvió error", { status: r.status, data });
+        setError(msg);
+        throw new Error(msg);
       }
 
       const status = String(data.status || "");
       const paymentId = String(data.paymentId || "");
 
+      // eslint-disable-next-line no-console
+      console.log("[checkout] pago procesado", { status, paymentId });
       trackEvent("payment_processed", { status, paymentId, preference_id: preferenceId });
 
       // Redirigir a la página de resultado correspondiente
@@ -249,15 +298,16 @@ export function CheckoutClient({ config }: { config: ConfigWeb }) {
       } else {
         // rejected / cancelled — dejar al Brick mostrar el error inline
         // para que el cliente pueda reintentar con otra tarjeta sin salir.
-        throw new Error(
+        const friendly =
           data.statusDetail === "cc_rejected_insufficient_amount"
             ? "Saldo insuficiente. Probá con otra tarjeta."
             : data.statusDetail === "cc_rejected_bad_filled_security_code"
               ? "Código de seguridad incorrecto."
               : data.statusDetail === "cc_rejected_bad_filled_date"
                 ? "Fecha de vencimiento incorrecta."
-                : "Tarjeta rechazada. Probá con otra o coordiná por WhatsApp.",
-        );
+                : "Tarjeta rechazada. Probá con otra o coordiná por WhatsApp.";
+        setError(friendly);
+        throw new Error(friendly);
       }
     },
     [preferenceId, totalConEnvio, externalRefSnapshot, payerSnapshot, items.length, router],
