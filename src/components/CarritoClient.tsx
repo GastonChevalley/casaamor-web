@@ -75,7 +75,11 @@ export function CarritoClient() {
         <ul className="divide-y divide-burgundy/10 border border-burgundy/10 rounded-xl bg-cream/30">
           {items.map((item) => {
             const thumb = item.fotoUrl ? cloudinaryUrl(item.fotoUrl, "thumb") : null;
-            const subtotal = item.precioUnit * item.cantidad;
+            // Mostrar precio TN en el item si hay dual pricing (consistente con
+            // el subtotal del resumen). Sin dual, mostrar EFT (precioUnit clásico).
+            const precioMostrado =
+              muestraDual && item.precioUnitTn ? item.precioUnitTn : item.precioUnit;
+            const subtotal = precioMostrado * item.cantidad;
             const linkHref = item.slug ? `/productos/${encodeURIComponent(item.slug)}` : null;
             return (
               <li key={item.lineId} className="p-4 sm:p-5 flex gap-4 items-center">
@@ -160,7 +164,7 @@ export function CarritoClient() {
                       </div>
                       {item.cantidad > 1 && (
                         <div className="text-xs text-ink/50 mt-0.5">
-                          {fmtMonto(item.precioUnit)} c/u
+                          {fmtMonto(precioMostrado)} c/u
                         </div>
                       )}
                     </div>
