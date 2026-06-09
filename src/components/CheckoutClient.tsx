@@ -388,7 +388,7 @@ export function CheckoutClient({ config }: { config: ConfigWeb }) {
                     <div>
                       <div className="font-semibold text-burgundy">Online con tarjeta o Mercado Pago</div>
                       <div className="text-sm text-ink/70 mt-0.5">
-                        Tarjeta de crédito (3 cuotas SI) · débito · MP · efectivo Rapipago / Pago Fácil
+                        Tarjeta de crédito (3 cuotas SI) · débito · Mercado Pago
                       </div>
                     </div>
                     <div className="text-right shrink-0">
