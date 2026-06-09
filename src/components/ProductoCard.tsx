@@ -125,24 +125,26 @@ export function ProductoCard({
 
   const mostrarQuickAdd = !tieneVariantes && producto.stock > 0;
 
-  // ESTRATEGIA DE ALINEACIÓN (decisión Plan agent):
-  // - Card root: h-full flex flex-col → ocupa todo el alto que le da el grid.
+  // ESTRATEGIA DE ALINEACIÓN (v3 — cards compactas a altura natural):
+  // El intento anterior (v2 con h-full + mt-auto en el botón) generaba un
+  // espacio enorme entre el nombre y los precios cuando el nombre era corto.
+  // Patrón estándar TN/ML: cards con altura natural, sin estirar al row.
+  // Trade-off aceptado: si una card tiene nombre 2 líneas y otra 1, los
+  // botones quedan a alturas levemente distintas (~14-18px diff). Vale la
+  // pena el contenido compacto.
+  // - Card: block (sin flex column ni h-full).
   // - Foto: aspect-square arriba.
-  // - Bloque info: flex-1 flex flex-col → toma el alto sobrante.
-  //   · Nombre: min-h-[2.75em] (2 líneas reservadas).
-  //   · Chip variantes: siempre renderizado, invisible si no aplica.
-  //   · Bloque precios: min-h fijo con 4 líneas (tachado oferta + 3 precios) —
-  //     SIEMPRE las 3 líneas de precio se muestran (efectivo / tarjeta / cuotas).
-  //     Cuando NO hay diferencia, la línea TN repite el monto EFT (mantiene
-  //     simetría visual entre cards). Cuando hay variantes, mostramos "Desde $X"
-  //     en línea 1 y las otras quedan invisible para preservar alto.
-  //   · Botón: mt-auto → empujado al fondo. Si no hay quick-add, spacer con
-  //     misma altura para alinear con cards vecinas que sí tienen botón.
+  // - Bloque info: flex column con gap-2 entre items.
+  //   · Nombre: altura natural (sin min-h).
+  //   · Chip variantes: SOLO se renderiza si aplica (no invisible).
+  //   · Bloque precios: min-h-[5rem] reservado para 4 líneas (tachado oferta
+  //     + EFT + TN + cuotas). Las 3 líneas de precio se muestran SIEMPRE.
+  //   · Botón: al final, sin mt-auto (sin estirar el espacio).
 
   return (
     <Link
       href={`/productos/${encodeURIComponent(producto.sku)}`}
-      className={`group block h-full flex flex-col ${cardClasses.container}`}
+      className={`group block ${cardClasses.container}`}
       onMouseEnter={onEnter}
       onMouseLeave={onLeave}
     >
@@ -185,61 +187,43 @@ export function ProductoCard({
         )}
       </div>
 
-      {/* Bloque info — flex-1 para tomar todo el alto sobrante de la card */}
-      <div className="p-4 sm:p-3 flex flex-1 flex-col gap-2">
-        {/* Nombre: 2 líneas reservadas siempre */}
-        <h3 className="font-heading text-burgundy text-sm sm:text-base line-clamp-2 leading-snug min-h-[2.75em]">
+      {/* Bloque info — altura natural, sin estirar */}
+      <div className="p-4 sm:p-3 flex flex-col gap-2">
+        {/* Nombre: altura natural (sin min-h para evitar gap fantasma) */}
+        <h3 className="font-heading text-burgundy text-sm sm:text-base line-clamp-2 leading-snug">
           {producto.nombre}
         </h3>
 
-        {/* Chip de variantes: siempre renderizado (invisible si no aplica)
-            para mantener el mismo alto entre cards con y sin variantes */}
-        <p
-          className={`text-xs text-rose font-medium leading-tight ${
-            tieneVariantes ? "" : "invisible"
-          }`}
-          aria-hidden={!tieneVariantes}
-        >
-          {tieneVariantes
-            ? `${producto.variantesCount} ${
-                producto.varianteTipo === "talle"
-                  ? "talles"
-                  : producto.varianteTipo === "material"
-                    ? "materiales"
-                    : "colores"
-              }`
-            : "·"}
-        </p>
+        {/* Chip de variantes: solo renderizado cuando aplica */}
+        {tieneVariantes && (
+          <p className="text-xs text-rose font-medium leading-tight">
+            {producto.variantesCount}{" "}
+            {producto.varianteTipo === "talle"
+              ? "talles"
+              : producto.varianteTipo === "material"
+                ? "materiales"
+                : "colores"}
+          </p>
+        )}
 
-        {/* Bloque de precios: 4 líneas con alto FIJO reservado (1 tachado + 3 precios) */}
-        <div className="flex flex-col gap-0.5 min-h-[5rem]">
-          {/* L0 (reservada): tachado oferta o invisible para mantener simetría */}
-          <span
-            className={`text-xs line-through leading-tight text-ink/40 ${
-              enOferta && !tieneVariantes ? "" : "invisible"
-            }`}
-            aria-hidden={!(enOferta && !tieneVariantes)}
-          >
-            {fmtMonto(producto.precioEft)}
-          </span>
+        {/* Bloque de precios: tachado oferta solo si aplica + 3 líneas fijas
+            para EFT, TN y cuotas (las 3 se muestran siempre — patrón TN). */}
+        <div className="flex flex-col gap-0.5">
+          {/* Tachado del precio EFT original — solo si hay oferta */}
+          {enOferta && !tieneVariantes && (
+            <span className="text-xs line-through leading-tight text-ink/40">
+              {fmtMonto(producto.precioEft)}
+            </span>
+          )}
 
           {tieneVariantes ? (
-            <>
-              {/* L1: "Desde $X" para grupos con rango */}
-              <div className="flex items-baseline gap-1.5 flex-wrap">
-                <span className="text-[15px] font-semibold text-burgundy">
-                  <span className="text-xs text-ink/60 font-normal">Desde </span>
-                  {fmtMonto(producto.precioEftMin ?? precioEftConOferta)}
-                </span>
-              </div>
-              {/* L2 y L3 invisible para preservar el min-h de 5rem */}
-              <span className="text-[13px] invisible" aria-hidden="true">
-                ·
+            /* "Desde $X" para grupos con variantes */
+            <div className="flex items-baseline gap-1.5 flex-wrap">
+              <span className="text-[15px] font-semibold text-burgundy">
+                <span className="text-xs text-ink/60 font-normal">Desde </span>
+                {fmtMonto(producto.precioEftMin ?? precioEftConOferta)}
               </span>
-              <span className="text-[11px] invisible" aria-hidden="true">
-                ·
-              </span>
-            </>
+            </div>
           ) : (
             <>
               {/* L1: precio EFT (anchor) + label */}
@@ -260,7 +244,7 @@ export function ProductoCard({
                   MP / tarjeta
                 </span>
               </div>
-              {/* L3: cuotas — texto auxiliar */}
+              {/* L3: cuotas — auxiliar */}
               <p className="text-[11px] text-ink/60 leading-tight">
                 3 cuotas s/ interés de {fmtMonto(cuotaMonto)}
               </p>
@@ -268,37 +252,29 @@ export function ProductoCard({
           )}
         </div>
 
-        {/* Botón / spacer — siempre al fondo (mt-auto) con alto fijo reservado.
-            Esto garantiza que TODAS las cards de la fila tengan el botón al
-            mismo alto exacto, sin importar las diferencias de texto arriba. */}
-        <div className="mt-auto pt-1">
-          {mostrarQuickAdd ? (
-            <button
-              type="button"
-              onClick={onAgregar}
-              aria-label={`Agregar ${producto.nombre} al carrito`}
-              className={`w-full h-10 inline-flex items-center justify-center gap-1.5 rounded-lg font-semibold text-sm transition-colors ${
-                agregado
-                  ? "bg-emerald-700 text-cream-light"
-                  : "bg-burgundy hover:bg-burgundy-dark text-cream-light"
-              }`}
-            >
-              {agregado ? (
-                <>
-                  <Check size={16} /> Agregado
-                </>
-              ) : (
-                <>
-                  <ShoppingBag size={16} /> Agregar al carrito
-                </>
-              )}
-            </button>
-          ) : (
-            // Spacer cuando NO hay botón (variantes o sin stock).
-            // Mantiene el mismo alto que el botón para alinear con vecinas.
-            <div className="w-full h-10" aria-hidden="true" />
-          )}
-        </div>
+        {/* Botón / spacer — al final del bloque info, sin estirar */}
+        {mostrarQuickAdd ? (
+          <button
+            type="button"
+            onClick={onAgregar}
+            aria-label={`Agregar ${producto.nombre} al carrito`}
+            className={`mt-1 w-full h-10 inline-flex items-center justify-center gap-1.5 rounded-lg font-semibold text-sm transition-colors ${
+              agregado
+                ? "bg-emerald-700 text-cream-light"
+                : "bg-burgundy hover:bg-burgundy-dark text-cream-light"
+            }`}
+          >
+            {agregado ? (
+              <>
+                <Check size={16} /> Agregado
+              </>
+            ) : (
+              <>
+                <ShoppingBag size={16} /> Agregar al carrito
+              </>
+            )}
+          </button>
+        ) : null}
       </div>
     </Link>
   );

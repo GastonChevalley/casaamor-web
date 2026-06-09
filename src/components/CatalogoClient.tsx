@@ -185,7 +185,7 @@ export function CatalogoClient({
           <p className="text-ink/60">Probá con otra búsqueda o quitá los filtros.</p>
         </div>
       ) : (
-        <div className="grid items-stretch grid-cols-2 sm:grid-cols-3 lg:grid-cols-4 gap-3 sm:gap-6">
+        <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-4 gap-3 sm:gap-6">
           {filtrados.map((p) => (
             <ProductoCard key={p.sku} producto={p} estilo={cardEstilo} />
           ))}

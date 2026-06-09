@@ -21,7 +21,7 @@ export function RelacionadosSection({
       <h2 className="font-heading text-2xl sm:text-3xl text-burgundy text-center mb-8">
         También te puede interesar
       </h2>
-      <div className="grid items-stretch grid-cols-2 sm:grid-cols-3 lg:grid-cols-4 gap-3 sm:gap-6">
+      <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-4 gap-3 sm:gap-6">
         {productos.slice(0, 4).map((p) => (
           <ProductoCard key={p.sku} producto={p} estilo={cardEstilo} />
         ))}
