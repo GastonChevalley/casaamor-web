@@ -456,7 +456,11 @@ export function CheckoutClient({ config }: { config: ConfigWeb }) {
                       creditCard: "all",
                       debitCard: "all",
                       mercadoPago: "all",
-                      ticket: "all",
+                      // ticket (Rapipago / Pago Fácil) deshabilitado: el cliente que
+                      // quiere pagar en efectivo o transferencia directa lo hace por
+                      // la opción "Transferencia / efectivo en showroom" del selector
+                      // de arriba (precio EFT con 20% off, sin comisión MP).
+                      ticket: [],
                       bankTransfer: "all",
                       maxInstallments: 3,
                     },
