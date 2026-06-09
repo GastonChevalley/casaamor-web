@@ -13,6 +13,7 @@ import {
   type CartItem,
   buildLineId,
   calcularTotal,
+  calcularTotalTn,
   calcularCantidadTotal,
 } from "@/lib/cart";
 
@@ -35,7 +36,11 @@ type AddPayload = Omit<CartItem, "lineId" | "cantidad"> & {
 
 type CartContextValue = {
   items: CartItem[];
+  /** Total en precio EFT (efectivo/transferencia, con 20% off vs TN). */
   total: number;
+  /** Total en precio TN (online/tarjeta/MP). Igual a `total` si los items
+   *  no tienen `precioUnitTn` definido (carritos viejos pre-Addendum 89). */
+  totalTn: number;
   cantidad: number;
   /** Agrega un producto. Si ya existe el mismo lineId, suma la cantidad. */
   agregar: (payload: AddPayload) => void;
@@ -131,6 +136,7 @@ export function CartProvider({ children }: { children: ReactNode }) {
           nombre: payload.nombre,
           variante: payload.variante || "",
           precioUnit: payload.precioUnit,
+          precioUnitTn: payload.precioUnitTn,
           cantidad: cantidadInc,
           fotoUrl: payload.fotoUrl,
           slug: payload.slug,
@@ -162,6 +168,7 @@ export function CartProvider({ children }: { children: ReactNode }) {
     () => ({
       items,
       total: calcularTotal(items),
+      totalTn: calcularTotalTn(items),
       cantidad: calcularCantidadTotal(items),
       agregar,
       cambiarCantidad,

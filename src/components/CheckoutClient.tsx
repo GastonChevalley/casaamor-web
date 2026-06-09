@@ -45,7 +45,7 @@ function asegurarMPInit(): boolean {
  */
 export function CheckoutClient({ config }: { config: ConfigWeb }) {
   const router = useRouter();
-  const { items, total, cantidad, hidratado } = useCart();
+  const { items, total, totalTn, cantidad, hidratado } = useCart();
 
   const [form, setForm] = useState({
     nombre: "",
@@ -56,6 +56,8 @@ export function CheckoutClient({ config }: { config: ConfigWeb }) {
     codigoPostal: "",
     notas: "",
     envio: "showroom" as "showroom" | "domicilio" | "sucursal",
+    /** Método de pago: 'mp' = Payment Brick · 'whatsapp' = coordinar transferencia/efectivo */
+    metodoPago: "mp" as "mp" | "whatsapp",
   });
   const [enviando, setEnviando] = useState(false);
   const [error, setError] = useState<string | null>(null);
@@ -65,6 +67,9 @@ export function CheckoutClient({ config }: { config: ConfigWeb }) {
   useEffect(() => {
     asegurarMPInit();
   }, []);
+
+  // Solo mostrar opción dual cuando hay diferencia real >= 1% entre TN y EFT.
+  const muestraDualPago = totalTn > total * 1.01;
 
   // Si el carrito queda vacío (eliminados todos los items mientras está en /checkout),
   // redirigir suavemente al catálogo.
@@ -93,10 +98,12 @@ export function CheckoutClient({ config }: { config: ConfigWeb }) {
       )}`
     : null;
 
+  // Total según método de pago elegido. MP cobra precio TN (cubre comisión + cuotas SI).
+  // WhatsApp cobra precio EFT (20% off — cliente coordina transferencia directa).
   const totalConEnvio = useMemo(() => {
     // Por ahora envío manual a coordinar (0). En B.2 esto consulta /api/envios/cotizar.
-    return total;
-  }, [total]);
+    return form.metodoPago === "mp" ? totalTn : total;
+  }, [total, totalTn, form.metodoPago]);
 
   function actualizar<K extends keyof typeof form>(key: K, valor: (typeof form)[K]) {
     setForm((prev) => ({ ...prev, [key]: valor }));
@@ -122,20 +129,66 @@ export function CheckoutClient({ config }: { config: ConfigWeb }) {
       return;
     }
     setEnviando(true);
-    trackEvent("add_payment_info", { total: totalConEnvio });
+    trackEvent("add_payment_info", { total: totalConEnvio, metodo: form.metodoPago });
 
-    // Si MP no está configurado (env var falta), fallback al WhatsApp.
+    // Branch WhatsApp: armar mensaje con items + datos cliente + monto EFT
+    // y abrir wa.me. NO crear preference MP.
+    if (form.metodoPago === "whatsapp") {
+      const wa = String(config.contacto_whatsapp || "").replace(/[^0-9]/g, "");
+      if (!wa) {
+        setEnviando(false);
+        setError("Falta configurar el WhatsApp del negocio en ConfigWeb.");
+        return;
+      }
+      const lineas = items.map(
+        (it) =>
+          `• ${it.cantidad}× ${it.nombre}${it.variante ? ` (${it.variante})` : ""} - $${Math.round(
+            it.precioUnit * it.cantidad,
+          ).toLocaleString("es-AR")}`,
+      );
+      const envioTxt =
+        form.envio === "showroom"
+          ? "Retiro en showroom"
+          : form.envio === "domicilio"
+            ? `Envío a domicilio (${form.direccion}, ${form.ciudad}, CP ${form.codigoPostal})`
+            : `Retiro en sucursal Correo Argentino (${form.ciudad}, CP ${form.codigoPostal})`;
+      const msg = [
+        `Hola CasaAmor! Quiero coordinar una compra por transferencia / efectivo:`,
+        "",
+        `*Cliente:* ${form.nombre}`,
+        `*Email:* ${form.email}`,
+        form.telefono ? `*Tel:* ${form.telefono}` : null,
+        "",
+        `*Productos:*`,
+        ...lineas,
+        "",
+        `*Total efectivo / transferencia (20% OFF):* $${Math.round(total).toLocaleString("es-AR")}`,
+        `*Entrega:* ${envioTxt}`,
+        form.notas ? `*Notas:* ${form.notas}` : null,
+      ]
+        .filter(Boolean)
+        .join("\n");
+      const waUrl = `https://wa.me/${wa}?text=${encodeURIComponent(msg)}`;
+      trackEvent("checkout_whatsapp_selected", { total });
+      setEnviando(false);
+      window.open(waUrl, "_blank");
+      return;
+    }
+
+    // Branch MP: si MP no está configurado, fallback al WhatsApp con aviso.
     if (!MP_ENABLED) {
       setTimeout(() => {
         setEnviando(false);
         setError(
-          "El pago online está en activación. Por ahora coordinamos la compra por WhatsApp con los datos que cargaste. Tocá el botón verde para finalizar.",
+          "El pago online está en activación. Cambiá a 'Transferencia o efectivo' arriba y coordinamos por WhatsApp.",
         );
       }, 400);
       return;
     }
 
     // Crear preference MP server-side con los items + datos cliente
+    // IMPORTANTE: enviar precioUnitTn (no precioUnit) para que MP cobre el precio
+    // que cubre la comisión + cuotas SI.
     try {
       const r = await fetch("/api/mp/create-preference", {
         method: "POST",
@@ -145,7 +198,7 @@ export function CheckoutClient({ config }: { config: ConfigWeb }) {
             sku: it.sku,
             nombre: it.nombre,
             cantidad: it.cantidad,
-            precioUnit: it.precioUnit,
+            precioUnit: it.precioUnitTn || it.precioUnit,
             variante: it.variante,
           })),
           cliente: {
@@ -165,7 +218,7 @@ export function CheckoutClient({ config }: { config: ConfigWeb }) {
       if (!r.ok || !data?.ok || !data.preferenceId) {
         setError(
           data?.message ||
-            "No pudimos iniciar el pago. Intentá de nuevo o coordiná por WhatsApp.",
+            "No pudimos iniciar el pago. Intentá de nuevo o probá la opción de transferencia.",
         );
         return;
       }
@@ -310,24 +363,88 @@ export function CheckoutClient({ config }: { config: ConfigWeb }) {
             </Campo>
           </section>
 
-          {/* Pago — Payment Brick de Mercado Pago */}
+          {/* Selector "¿Cómo querés pagar?" + Pago */}
           <section className="border border-burgundy/10 rounded-xl bg-cream/30 p-5 sm:p-6">
-            <h2 className="font-heading text-xl text-burgundy mb-2">Pago</h2>
-            <p className="text-sm text-ink/70 mb-4">
-              Pagá con tarjeta de crédito, débito, transferencia o efectivo (Rapipago / Pago Fácil) —
-              todo a través de Mercado Pago. <strong>3 cuotas sin interés disponibles.</strong>
-            </p>
+            <h2 className="font-heading text-xl text-burgundy mb-4">¿Cómo querés pagar?</h2>
 
-            {/* Si MP no está configurado (env var falta), mostrar fallback informativo. */}
-            {!MP_ENABLED && (
-              <div className="rounded-lg bg-gold/10 border border-gold/30 p-4 text-sm text-ink/80">
-                💡 <strong>El pago online está en activación.</strong> Mientras tanto, coordinamos la
-                compra por WhatsApp con tus datos.
+            {muestraDualPago ? (
+              <div className="space-y-3">
+                {/* Opción MP */}
+                <button
+                  type="button"
+                  onClick={() => {
+                    actualizar("metodoPago", "mp");
+                    // Si cambia de WA a MP, resetear preferenceId para que se cree de nuevo
+                    if (form.metodoPago === "whatsapp") setPreferenceId(null);
+                  }}
+                  aria-pressed={form.metodoPago === "mp"}
+                  className={`w-full text-left rounded-lg border-2 p-4 transition-colors ${
+                    form.metodoPago === "mp"
+                      ? "border-burgundy bg-cream-light"
+                      : "border-burgundy/15 bg-cream-light/50 hover:border-burgundy/30"
+                  }`}
+                >
+                  <div className="flex items-start justify-between gap-3">
+                    <div>
+                      <div className="font-semibold text-burgundy">Online con tarjeta o Mercado Pago</div>
+                      <div className="text-sm text-ink/70 mt-0.5">
+                        Tarjeta de crédito (3 cuotas SI) · débito · MP · efectivo Rapipago / Pago Fácil
+                      </div>
+                    </div>
+                    <div className="text-right shrink-0">
+                      <div className="font-semibold text-burgundy">{fmtMonto(totalTn)}</div>
+                      <div className="text-xs text-ink/50">3 cuotas SI</div>
+                    </div>
+                  </div>
+                </button>
+
+                {/* Opción WhatsApp / Transferencia */}
+                <button
+                  type="button"
+                  onClick={() => {
+                    actualizar("metodoPago", "whatsapp");
+                    setPreferenceId(null);
+                  }}
+                  aria-pressed={form.metodoPago === "whatsapp"}
+                  className={`w-full text-left rounded-lg border-2 p-4 transition-colors ${
+                    form.metodoPago === "whatsapp"
+                      ? "border-burgundy bg-gold/10"
+                      : "border-burgundy/15 bg-cream-light/50 hover:border-burgundy/30"
+                  }`}
+                >
+                  <div className="flex items-start justify-between gap-3">
+                    <div>
+                      <div className="font-semibold text-burgundy">
+                        Transferencia bancaria o efectivo en showroom
+                      </div>
+                      <div className="text-sm text-ink/70 mt-0.5">
+                        Coordinamos por WhatsApp. Te pasamos CBU y reservamos el pedido.
+                      </div>
+                    </div>
+                    <div className="text-right shrink-0">
+                      <div className="font-semibold text-burgundy">{fmtMonto(total)}</div>
+                      <div className="text-xs text-emerald-700 font-medium">20% OFF</div>
+                    </div>
+                  </div>
+                </button>
+              </div>
+            ) : (
+              <p className="text-sm text-ink/70 mb-4">
+                Pagá con tarjeta de crédito, débito, transferencia o efectivo (Rapipago / Pago Fácil) —
+                todo a través de Mercado Pago. <strong>3 cuotas sin interés disponibles.</strong>
+              </p>
+            )}
+
+            {/* Si MP no está configurado, mostrar fallback informativo (solo aplica a opción MP) */}
+            {!MP_ENABLED && form.metodoPago === "mp" && (
+              <div className="mt-4 rounded-lg bg-gold/10 border border-gold/30 p-4 text-sm text-ink/80">
+                💡 <strong>El pago online está en activación.</strong> Cambiá a "Transferencia o
+                efectivo" arriba para coordinar la compra por WhatsApp.
               </div>
             )}
 
-            {/* Cuando hay preferenceId, montar el Payment Brick. */}
-            {MP_ENABLED && preferenceId && (
+            {/* Cuando hay preferenceId (rama MP), montar el Payment Brick. */}
+            {MP_ENABLED && form.metodoPago === "mp" && preferenceId && (
               <div className="mt-4">
                 <Payment
                   initialization={{
@@ -353,8 +470,6 @@ export function CheckoutClient({ config }: { config: ConfigWeb }) {
                     },
                   }}
                   onSubmit={async () => {
-                    // El Brick maneja el flujo internamente cuando hay preferenceId.
-                    // Aquí solo trackeamos y dejamos que MP redirija a back_urls.
                     trackEvent("payment_brick_submit", {
                       preference_id: preferenceId,
                       total: totalConEnvio,
@@ -362,20 +477,28 @@ export function CheckoutClient({ config }: { config: ConfigWeb }) {
                   }}
                   onError={(err) => {
                     console.error("[mp brick] error", err);
-                    setError("Error al cargar el medio de pago. Refrescá la página o coordiná por WhatsApp.");
+                    setError("Error al cargar el medio de pago. Refrescá o cambiá a transferencia.");
                   }}
                   onReady={() => {
-                    // Brick montado y listo
+                    // Brick montado
                   }}
                 />
               </div>
             )}
 
-            {/* Cuando MP está configurado pero todavía no hay preferenceId, mostrar instrucción. */}
-            {MP_ENABLED && !preferenceId && (
-              <div className="rounded-lg bg-cream-light border border-burgundy/15 p-4 text-sm text-ink/70">
+            {/* Cuando MP está configurado y elegido pero todavía no hay preferenceId */}
+            {MP_ENABLED && form.metodoPago === "mp" && !preferenceId && (
+              <div className="mt-4 rounded-lg bg-cream-light border border-burgundy/15 p-4 text-sm text-ink/70">
                 Completá los datos arriba y tocá <strong>Confirmar y pagar</strong> para elegir el
                 medio de pago.
+              </div>
+            )}
+
+            {/* Branch WhatsApp seleccionado: aviso pre-submit */}
+            {form.metodoPago === "whatsapp" && (
+              <div className="mt-4 rounded-lg bg-cream-light border border-burgundy/15 p-4 text-sm text-ink/70">
+                Al tocar <strong>Confirmar</strong> abajo, se abre WhatsApp con tu pedido pre-armado.
+                Coordinás transferencia o entrega con Mora/Lara directamente.
               </div>
             )}
           </section>
@@ -415,7 +538,9 @@ export function CheckoutClient({ config }: { config: ConfigWeb }) {
             <dl className="space-y-1.5 text-sm">
               <div className="flex justify-between">
                 <dt className="text-ink/70">Subtotal</dt>
-                <dd className="font-semibold text-ink">{fmtMonto(total)}</dd>
+                <dd className="font-semibold text-ink">
+                  {fmtMonto(form.metodoPago === "mp" ? totalTn : total)}
+                </dd>
               </div>
               <div className="flex justify-between">
                 <dt className="text-ink/70">Envío</dt>
@@ -423,6 +548,12 @@ export function CheckoutClient({ config }: { config: ConfigWeb }) {
                   {form.envio === "showroom" ? "Sin costo" : "se calcula al pagar"}
                 </dd>
               </div>
+              {muestraDualPago && form.metodoPago === "whatsapp" && (
+                <div className="flex justify-between text-emerald-700">
+                  <dt>Descuento transferencia</dt>
+                  <dd>−{fmtMonto(totalTn - total)}</dd>
+                </div>
+              )}
             </dl>
             <hr className="my-4 border-burgundy/10" />
             <div className="flex justify-between items-baseline mb-4">
@@ -433,14 +564,20 @@ export function CheckoutClient({ config }: { config: ConfigWeb }) {
             <button
               type="submit"
               disabled={enviando}
-              className="inline-flex items-center justify-center gap-2 w-full text-center bg-burgundy hover:bg-burgundy-dark disabled:bg-burgundy/40 disabled:cursor-not-allowed text-cream-light font-semibold py-3 px-6 rounded-lg transition-colors"
+              className={`inline-flex items-center justify-center gap-2 w-full text-center font-semibold py-3 px-6 rounded-lg transition-colors text-cream-light disabled:opacity-60 disabled:cursor-not-allowed ${
+                form.metodoPago === "whatsapp"
+                  ? "bg-emerald-700 hover:bg-emerald-800"
+                  : "bg-burgundy hover:bg-burgundy-dark"
+              }`}
             >
               {enviando ? (
                 <>
                   <Loader2 size={18} className="animate-spin" /> Procesando…
                 </>
+              ) : form.metodoPago === "whatsapp" ? (
+                <>Coordinar por WhatsApp {fmtMonto(total)}</>
               ) : (
-                "Confirmar y pagar"
+                <>Confirmar y pagar {fmtMonto(totalTn)}</>
               )}
             </button>
 

@@ -20,8 +20,12 @@ export type CartItem = {
   nombre: string;
   /** Valor de la variante si aplica (ej "AZUL", "M"). Vacío si no hay. */
   variante: string;
-  /** Precio unitario actual mostrado en el sitio (snapshot). */
+  /** Precio unitario EFT (efectivo/transferencia) — snapshot al agregar. */
   precioUnit: number;
+  /** Precio unitario TN (online/tarjeta/MP) — snapshot al agregar.
+   *  Si no se setea, se usa el mismo `precioUnit` (sin descuento por método).
+   *  Esto permite mostrar dual pricing en el carrito y checkout. */
+  precioUnitTn?: number;
   /** Cantidad solicitada. */
   cantidad: number;
   /** URL de la foto principal para mostrar miniatura en el carrito. */
@@ -40,10 +44,23 @@ export function buildLineId(sku: string, variante: string = ""): string {
 }
 
 /**
- * Suma el total monetario del carrito.
+ * Suma el total monetario del carrito en precio EFT (efectivo/transferencia).
  */
 export function calcularTotal(items: CartItem[]): number {
   return items.reduce((acc, item) => acc + item.precioUnit * item.cantidad, 0);
+}
+
+/**
+ * Suma el total en precio TN (online/tarjeta/MP). Para items que no tienen
+ * `precioUnitTn` (caso de carritos viejos en localStorage antes del Addendum 89),
+ * usa `precioUnit` como fallback — el cliente ve los 2 totales iguales para
+ * esos items hasta que renueve el carrito.
+ */
+export function calcularTotalTn(items: CartItem[]): number {
+  return items.reduce(
+    (acc, item) => acc + (item.precioUnitTn || item.precioUnit) * item.cantidad,
+    0,
+  );
 }
 
 /**

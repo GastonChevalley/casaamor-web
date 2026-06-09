@@ -130,6 +130,7 @@ export function ProductoDetalleClient({
       nombre: producto.nombre,
       variante: varianteActual?.valor || "",
       precioUnit: precioEftFinal,
+      precioUnitTn: precioTnFinal,
       fotoUrl: datos.fotos[0],
       slug: producto.sku,
     });
