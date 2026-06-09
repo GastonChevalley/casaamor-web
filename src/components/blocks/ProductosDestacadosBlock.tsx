@@ -72,7 +72,7 @@ export async function ProductosDestacadosBlock({
           No hay productos para mostrar todavía.
         </div>
       ) : (
-        <div className={`grid gap-3 sm:gap-6 grid-cols-2 ${gridClass}`}>
+        <div className={`grid items-stretch gap-3 sm:gap-6 grid-cols-2 ${gridClass}`}>
           {productos.map((p) => (
             <ProductoCard key={p.sku} producto={p} estilo={cardEstilo} />
           ))}
