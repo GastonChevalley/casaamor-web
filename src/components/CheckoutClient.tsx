@@ -70,6 +70,9 @@ export function CheckoutClient({ config }: { config: ConfigWeb }) {
     firstName: string;
     lastName: string;
   } | null>(null);
+  // External reference de la preference activa — la usamos en process-payment
+  // para que el webhook pueda matchear el pago con la preference original.
+  const [externalRefSnapshot, setExternalRefSnapshot] = useState<string | null>(null);
   const [brickListo, setBrickListo] = useState(false);
   const brickContainerRef = useRef<HTMLDivElement | null>(null);
 
@@ -158,13 +161,107 @@ export function CheckoutClient({ config }: { config: ConfigWeb }) {
     );
     setPreferenceId(null);
     setPayerSnapshot(null);
+    setExternalRefSnapshot(null);
   }, []);
-  const onBrickSubmitTrack = useCallback(() => {
-    trackEvent("payment_brick_submit", {
-      preference_id: preferenceId,
-      total: totalConEnvio,
-    });
-  }, [preferenceId, totalConEnvio]);
+
+  // Procesa el pago cuando el usuario aprieta "Pagar" del Brick.
+  //
+  // Dos flows posibles según el método elegido en el Brick:
+  // 1) Tarjeta crédito/débito → Brick tokeniza la tarjeta y nos pasa el
+  //    `formData.token`. Llamamos a /api/mp/process-payment → MP procesa →
+  //    devuelve status → redirigimos a /checkout/exito|pendiente|error.
+  // 2) Mercado Pago (Wallet) → MP redirige automáticamente a su hosted
+  //    checkout usando preferenceId + back_urls. Acá no recibimos token y
+  //    el Brick maneja el redirect solo.
+  //
+  // El callback debe devolver Promise<void>. Si tira, el Brick muestra el
+  // error inline (estado de "rechazado" que permite reintentar).
+  const onBrickSubmitProcess = useCallback(
+    async (args: {
+      selectedPaymentMethod?: string;
+      formData?: {
+        token?: string;
+        payment_method_id?: string;
+        issuer_id?: string;
+        installments?: number;
+        transaction_amount?: number;
+        payer?: { email?: string; identification?: { type?: string; number?: string } };
+      };
+    }) => {
+      const formData = args?.formData || {};
+      const selected = args?.selectedPaymentMethod || "";
+
+      trackEvent("payment_brick_submit", {
+        preference_id: preferenceId,
+        selected_method: selected,
+        total: totalConEnvio,
+      });
+
+      // Sin token = método Wallet (Mercado Pago). El Brick redirige por su
+      // cuenta usando preferenceId + back_urls. Nada que hacer acá.
+      if (!formData.token) {
+        return;
+      }
+
+      if (!externalRefSnapshot) {
+        throw new Error("Falta external reference. Recargá la página.");
+      }
+
+      // Procesar tarjeta vía nuestro endpoint
+      const r = await fetch("/api/mp/process-payment", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          token: formData.token,
+          payment_method_id: formData.payment_method_id,
+          issuer_id: formData.issuer_id,
+          installments: formData.installments || 1,
+          transaction_amount: formData.transaction_amount || totalConEnvio,
+          payer: {
+            email: formData.payer?.email || payerSnapshot?.email,
+            identification: formData.payer?.identification,
+          },
+          externalReference: externalRefSnapshot,
+          description: `Compra CasaAmor (${items.length} ${items.length === 1 ? "ítem" : "ítems"})`,
+        }),
+      });
+
+      const data = await r.json().catch(() => ({}));
+
+      if (!r.ok || !data?.ok) {
+        // Tirar error → Brick muestra mensaje inline + permite reintentar
+        // con otra tarjeta sin perder el form ni la preference.
+        throw new Error(
+          data?.message || "No pudimos procesar el pago. Probá con otra tarjeta o coordiná por WhatsApp.",
+        );
+      }
+
+      const status = String(data.status || "");
+      const paymentId = String(data.paymentId || "");
+
+      trackEvent("payment_processed", { status, paymentId, preference_id: preferenceId });
+
+      // Redirigir a la página de resultado correspondiente
+      if (status === "approved") {
+        router.push(`/checkout/exito?payment_id=${paymentId}`);
+      } else if (status === "in_process" || status === "pending") {
+        router.push(`/checkout/pendiente?payment_id=${paymentId}`);
+      } else {
+        // rejected / cancelled — dejar al Brick mostrar el error inline
+        // para que el cliente pueda reintentar con otra tarjeta sin salir.
+        throw new Error(
+          data.statusDetail === "cc_rejected_insufficient_amount"
+            ? "Saldo insuficiente. Probá con otra tarjeta."
+            : data.statusDetail === "cc_rejected_bad_filled_security_code"
+              ? "Código de seguridad incorrecto."
+              : data.statusDetail === "cc_rejected_bad_filled_date"
+                ? "Fecha de vencimiento incorrecta."
+                : "Tarjeta rechazada. Probá con otra o coordiná por WhatsApp.",
+        );
+      }
+    },
+    [preferenceId, totalConEnvio, externalRefSnapshot, payerSnapshot, items.length, router],
+  );
 
   function actualizar<K extends keyof typeof form>(key: K, valor: (typeof form)[K]) {
     setForm((prev) => ({ ...prev, [key]: valor }));
@@ -283,14 +380,16 @@ export function CheckoutClient({ config }: { config: ConfigWeb }) {
         );
         return;
       }
-      // Snapshot del payer JUSTO antes de montar el Brick. A partir de acá
-      // el form puede cambiar (el cliente edita un campo) sin afectar al Brick.
+      // Snapshot del payer + externalReference JUSTO antes de montar el Brick.
+      // A partir de acá el form puede cambiar (el cliente edita un campo) sin
+      // afectar al Brick (que ya está congelado en memo con key=preferenceId).
       const partes = form.nombre.trim().split(/\s+/);
       setPayerSnapshot({
         email: form.email.trim(),
         firstName: partes[0] || "",
         lastName: partes.slice(1).join(" ") || "",
       });
+      setExternalRefSnapshot((data.externalReference as string) || null);
       setPreferenceId(data.preferenceId as string);
     } catch {
       setEnviando(false);
@@ -525,6 +624,7 @@ export function CheckoutClient({ config }: { config: ConfigWeb }) {
                     onClick={() => {
                       setPreferenceId(null);
                       setPayerSnapshot(null);
+                      setExternalRefSnapshot(null);
                       setError(null);
                     }}
                     className="text-xs text-burgundy hover:text-gold underline inline-flex items-center gap-1 shrink-0"
@@ -558,7 +658,7 @@ export function CheckoutClient({ config }: { config: ConfigWeb }) {
                       payerLastName={payerSnapshot.lastName}
                       onReady={onBrickReady}
                       onError={onBrickError}
-                      onSubmitTrack={onBrickSubmitTrack}
+                      onSubmitProcess={onBrickSubmitProcess}
                     />
                   )}
                 </div>
@@ -711,6 +811,18 @@ export function CheckoutClient({ config }: { config: ConfigWeb }) {
  *
  * Ver: https://www.mercadopago.com.co/developers/en/docs/checkout-bricks/additional-content/possible-errors
  */
+type BrickSubmitArgs = {
+  selectedPaymentMethod?: string;
+  formData?: {
+    token?: string;
+    payment_method_id?: string;
+    issuer_id?: string;
+    installments?: number;
+    transaction_amount?: number;
+    payer?: { email?: string; identification?: { type?: string; number?: string } };
+  };
+};
+
 type PaymentBrickProps = {
   preferenceId: string;
   amount: number;
@@ -719,7 +831,11 @@ type PaymentBrickProps = {
   payerLastName: string;
   onReady: () => void;
   onError: (err: unknown) => void;
-  onSubmitTrack: () => void;
+  /**
+   * Procesa el submit del Brick. Si la promesa rechaza, el Brick muestra
+   * el error inline y permite reintentar (no perdemos la preference).
+   */
+  onSubmitProcess: (args: BrickSubmitArgs) => Promise<void>;
 };
 
 const PaymentBrickIsolated = memo(function PaymentBrickIsolated({
@@ -730,7 +846,7 @@ const PaymentBrickIsolated = memo(function PaymentBrickIsolated({
   payerLastName,
   onReady,
   onError,
-  onSubmitTrack,
+  onSubmitProcess,
 }: PaymentBrickProps) {
   // Cleanup específico del Brick al desmontar (cambio de preferenceId via
   // key={preferenceId} en el padre, o salida del checkout).
@@ -797,10 +913,15 @@ const PaymentBrickIsolated = memo(function PaymentBrickIsolated({
     [],
   );
 
-  const handleSubmit = useCallback(async () => {
-    onSubmitTrack();
-    // MP redirige automáticamente a back_urls según el resultado del pago.
-  }, [onSubmitTrack]);
+  // Forwardea el submit del Brick al callback del padre, preservando los args
+  // que MP nos pasa ({selectedPaymentMethod, formData}). Si el callback rechaza,
+  // el Brick muestra el error inline y permite reintentar sin recargar.
+  const handleSubmit = useCallback(
+    async (args: BrickSubmitArgs) => {
+      await onSubmitProcess(args);
+    },
+    [onSubmitProcess],
+  );
 
   return (
     <Payment

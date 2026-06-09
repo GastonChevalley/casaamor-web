@@ -156,6 +156,76 @@ export async function crearPreference(input: PreferenceInput): Promise<Preferenc
 }
 
 /**
+ * Input que envía el Payment Brick en su callback `onSubmit`.
+ * Estos campos vienen del SDK MP — son los datos tokenizados de la tarjeta.
+ */
+export type ProcessPaymentInput = {
+  token: string;
+  payment_method_id: string;
+  issuer_id?: string;
+  installments?: number;
+  transaction_amount: number;
+  payer: {
+    email: string;
+    identification?: { type?: string; number?: string };
+  };
+  external_reference: string;
+  description?: string;
+};
+
+/**
+ * Crea un pago en MP usando la Payments API. Se usa para procesar tarjetas
+ * de crédito / débito directamente desde el Payment Brick (sin redirección
+ * a MP). El Brick tokeniza la tarjeta del lado cliente y nos pasa el token;
+ * nosotros lo intercambiamos por un cobro real acá.
+ *
+ * https://www.mercadopago.com.ar/developers/es/reference/payments/_payments/post
+ */
+export async function procesarPago(input: ProcessPaymentInput): Promise<MPPayment | null> {
+  const token = process.env.MP_ACCESS_TOKEN || "";
+  if (!token) return null;
+
+  const body = {
+    token: input.token,
+    payment_method_id: input.payment_method_id,
+    issuer_id: input.issuer_id,
+    installments: input.installments || 1,
+    transaction_amount: input.transaction_amount,
+    payer: input.payer,
+    external_reference: input.external_reference,
+    description: input.description || "Compra CasaAmor",
+    statement_descriptor: "CASAAMOR",
+    notification_url: `${process.env.NEXT_PUBLIC_SITE_URL || ""}/api/webhooks/mp`,
+    binary_mode: false,
+  };
+
+  try {
+    // Idempotency-Key obligatorio en POST /v1/payments para evitar cobros
+    // duplicados si el usuario refresca o la red falla en el medio del request.
+    const idempotencyKey = `${input.external_reference}-${Date.now()}`;
+    const r = await fetch(`${MP_BASE}/v1/payments`, {
+      method: "POST",
+      headers: {
+        Authorization: `Bearer ${token}`,
+        "Content-Type": "application/json",
+        "X-Idempotency-Key": idempotencyKey,
+      },
+      body: JSON.stringify(body),
+      cache: "no-store",
+    });
+    if (!r.ok) {
+      const errBody = await r.text().catch(() => "");
+      console.error("[mp/procesarPago] error API", r.status, errBody);
+      return null;
+    }
+    return (await r.json()) as MPPayment;
+  } catch (err) {
+    console.error("[mp/procesarPago] excepción", err);
+    return null;
+  }
+}
+
+/**
  * Valida la firma HMAC del webhook de MP.
  *
  * MP envía header `x-signature: ts=<timestamp>,v1=<hash>`.
