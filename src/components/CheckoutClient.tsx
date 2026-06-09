@@ -1,6 +1,6 @@
 "use client";
 
-import { useState, useMemo, useEffect } from "react";
+import { useState, useMemo, useEffect, useRef } from "react";
 import Link from "next/link";
 import { useRouter } from "next/navigation";
 import { ArrowLeft, ShoppingBag, Loader2 } from "lucide-react";
@@ -62,11 +62,54 @@ export function CheckoutClient({ config }: { config: ConfigWeb }) {
   const [enviando, setEnviando] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [preferenceId, setPreferenceId] = useState<string | null>(null);
+  const [brickListo, setBrickListo] = useState(false);
+  const brickContainerRef = useRef<HTMLDivElement | null>(null);
 
   // Asegurar SDK MP inicializado del lado cliente
   useEffect(() => {
     asegurarMPInit();
   }, []);
+
+  // Cleanup del Payment Brick al desmontar el componente o al cambiar de
+  // preferenceId. Sin esto, MP SDK puede dejar bricks huérfanos en el DOM
+  // y aparecen 2 bricks superpuestos (bug reportado 2026-06-09).
+  // Ver docs: https://www.mercadopago.com.co/developers/en/docs/checkout-bricks/additional-content/possible-errors
+  useEffect(() => {
+    return () => {
+      try {
+        const w = window as unknown as {
+          paymentBrickController?: { unmount?: () => void };
+        };
+        w.paymentBrickController?.unmount?.();
+      } catch {
+        /* defensive: el SDK puede no estar cargado */
+      }
+    };
+  }, []);
+
+  // Si se resetea preferenceId (cambio de método, edición de datos, error)
+  // unmount explícito antes de que React intente montar uno nuevo.
+  useEffect(() => {
+    if (preferenceId === null) {
+      try {
+        const w = window as unknown as {
+          paymentBrickController?: { unmount?: () => void };
+        };
+        w.paymentBrickController?.unmount?.();
+      } catch {
+        /* noop */
+      }
+      setBrickListo(false);
+    }
+  }, [preferenceId]);
+
+  // Cuando se monta el Brick, scrollear suavemente para que el usuario vea
+  // el siguiente paso (los datos quedaron arriba).
+  useEffect(() => {
+    if (preferenceId && brickContainerRef.current) {
+      brickContainerRef.current.scrollIntoView({ behavior: "smooth", block: "start" });
+    }
+  }, [preferenceId]);
 
   // Solo mostrar opción dual cuando hay diferencia real >= 1% entre TN y EFT.
   const muestraDualPago = totalTn > total * 1.01;
@@ -445,55 +488,88 @@ export function CheckoutClient({ config }: { config: ConfigWeb }) {
 
             {/* Cuando hay preferenceId (rama MP), montar el Payment Brick. */}
             {MP_ENABLED && form.metodoPago === "mp" && preferenceId && (
-              <div className="mt-4">
-                <Payment
-                  initialization={{
-                    amount: totalConEnvio,
-                    preferenceId: preferenceId,
-                  }}
-                  customization={{
-                    paymentMethods: {
-                      creditCard: "all",
-                      debitCard: "all",
-                      mercadoPago: "all",
-                      // ticket (Rapipago / Pago Fácil) deshabilitado: el cliente que
-                      // quiere pagar en efectivo o transferencia directa lo hace por
-                      // la opción "Transferencia / efectivo en showroom" del selector
-                      // de arriba (precio EFT con 20% off, sin comisión MP).
-                      ticket: [],
-                      bankTransfer: "all",
-                      maxInstallments: 3,
-                    },
-                    visual: {
-                      style: {
-                        theme: "default",
-                        customVariables: {
-                          baseColor: "var(--brand-burgundy)",
+              <div className="mt-4" ref={brickContainerRef}>
+                {/* Header del step de pago: indica claramente que el brick es el único punto de submit */}
+                <div className="flex items-center justify-between gap-3 mb-3">
+                  <div className="text-sm text-ink/70">
+                    Elegí abajo cómo querés pagar y tocá <strong>Pagar</strong>.
+                  </div>
+                  <button
+                    type="button"
+                    onClick={() => {
+                      setPreferenceId(null);
+                      setError(null);
+                    }}
+                    className="text-xs text-burgundy hover:text-gold underline inline-flex items-center gap-1 shrink-0"
+                  >
+                    <ArrowLeft size={12} /> Editar datos
+                  </button>
+                </div>
+
+                {/* Container del brick con overlay de loading hasta onReady */}
+                <div className="relative min-h-[280px]">
+                  {!brickListo && (
+                    <div
+                      className="absolute inset-0 flex flex-col items-center justify-center gap-2 bg-cream-light/95 rounded-lg border border-burgundy/15 z-10"
+                      aria-live="polite"
+                    >
+                      <Loader2 className="animate-spin text-burgundy" size={28} />
+                      <div className="text-sm text-burgundy/70">Cargando opciones de pago…</div>
+                    </div>
+                  )}
+                  <Payment
+                    initialization={{
+                      amount: totalConEnvio,
+                      preferenceId: preferenceId,
+                    }}
+                    customization={{
+                      paymentMethods: {
+                        creditCard: "all",
+                        debitCard: "all",
+                        mercadoPago: "all",
+                        // ticket (Rapipago / Pago Fácil) deshabilitado: el cliente que
+                        // quiere pagar en efectivo o transferencia directa lo hace por
+                        // la opción "Transferencia / efectivo en showroom" del selector
+                        // de arriba (precio EFT con 20% off, sin comisión MP).
+                        ticket: [],
+                        bankTransfer: "all",
+                        maxInstallments: 3,
+                      },
+                      visual: {
+                        style: {
+                          theme: "default",
+                          customVariables: {
+                            baseColor: "var(--brand-burgundy)",
+                          },
                         },
                       },
-                    },
-                  }}
-                  onSubmit={async () => {
-                    trackEvent("payment_brick_submit", {
-                      preference_id: preferenceId,
-                      total: totalConEnvio,
-                    });
-                  }}
-                  onError={(err) => {
-                    console.error("[mp brick] error", err);
-                    setError("Error al cargar el medio de pago. Refrescá o cambiá a transferencia.");
-                  }}
-                  onReady={() => {
-                    // Brick montado
-                  }}
-                />
+                    }}
+                    onSubmit={async () => {
+                      trackEvent("payment_brick_submit", {
+                        preference_id: preferenceId,
+                        total: totalConEnvio,
+                      });
+                      // MP redirige automáticamente a back_urls según el resultado.
+                    }}
+                    onError={(err) => {
+                      console.error("[mp brick] error", err);
+                      setError(
+                        "Hubo un problema al cargar el medio de pago. Tocá 'Editar datos' arriba y volvé a intentar, o coordiná por WhatsApp.",
+                      );
+                      setPreferenceId(null);
+                    }}
+                    onReady={() => {
+                      setBrickListo(true);
+                    }}
+                  />
+                </div>
               </div>
             )}
 
             {/* Cuando MP está configurado y elegido pero todavía no hay preferenceId */}
             {MP_ENABLED && form.metodoPago === "mp" && !preferenceId && (
               <div className="mt-4 rounded-lg bg-cream-light border border-burgundy/15 p-4 text-sm text-ink/70">
-                Completá los datos arriba y tocá <strong>Confirmar y pagar</strong> para elegir el
+                Completá los datos arriba y tocá <strong>Continuar al pago</strong> para elegir el
                 medio de pago.
               </div>
             )}
@@ -565,25 +641,39 @@ export function CheckoutClient({ config }: { config: ConfigWeb }) {
               <span className="font-heading text-2xl text-burgundy">{fmtMonto(totalConEnvio)}</span>
             </div>
 
-            <button
-              type="submit"
-              disabled={enviando}
-              className={`inline-flex items-center justify-center gap-2 w-full text-center font-semibold py-3 px-6 rounded-lg transition-colors text-cream-light disabled:opacity-60 disabled:cursor-not-allowed ${
-                form.metodoPago === "whatsapp"
-                  ? "bg-emerald-700 hover:bg-emerald-800"
-                  : "bg-burgundy hover:bg-burgundy-dark"
-              }`}
-            >
-              {enviando ? (
-                <>
-                  <Loader2 size={18} className="animate-spin" /> Procesando…
-                </>
-              ) : form.metodoPago === "whatsapp" ? (
-                <>Coordinar por WhatsApp {fmtMonto(total)}</>
-              ) : (
-                <>Confirmar y pagar {fmtMonto(totalTn)}</>
-              )}
-            </button>
+            {/* CTA principal: se oculta cuando ya se montó el Payment Brick
+                (el Brick tiene su botón "Pagar" nativo, único punto de submit).
+                Esto evita el bug del doble botón que creaba 2 preferences. */}
+            {!(form.metodoPago === "mp" && preferenceId) && (
+              <button
+                type="submit"
+                disabled={enviando}
+                className={`inline-flex items-center justify-center gap-2 w-full text-center font-semibold py-3 px-6 rounded-lg transition-colors text-cream-light disabled:opacity-60 disabled:cursor-not-allowed ${
+                  form.metodoPago === "whatsapp"
+                    ? "bg-emerald-700 hover:bg-emerald-800"
+                    : "bg-burgundy hover:bg-burgundy-dark"
+                }`}
+              >
+                {enviando ? (
+                  <>
+                    <Loader2 size={18} className="animate-spin" />
+                    {form.metodoPago === "whatsapp" ? "Abriendo WhatsApp…" : "Creando pago…"}
+                  </>
+                ) : form.metodoPago === "whatsapp" ? (
+                  <>Coordinar por WhatsApp {fmtMonto(total)}</>
+                ) : (
+                  <>Continuar al pago {fmtMonto(totalTn)}</>
+                )}
+              </button>
+            )}
+
+            {/* Cuando el Brick está montado, mostrar un nota recordatoria abajo
+                del resumen para que la dueña/cliente sepa dónde está el botón. */}
+            {form.metodoPago === "mp" && preferenceId && (
+              <div className="text-center text-xs text-ink/60 mt-2">
+                ⬆️ Completá el pago en el formulario de arriba
+              </div>
+            )}
 
             {error && (
               <div className="mt-3 text-sm text-burgundy bg-rose/10 border border-rose/30 rounded p-3">
