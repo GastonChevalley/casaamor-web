@@ -189,8 +189,13 @@ export function ProductoCard({
 
       {/* Bloque info — altura natural, sin estirar */}
       <div className="p-4 sm:p-3 flex flex-col gap-2">
-        {/* Nombre: altura natural (sin min-h para evitar gap fantasma) */}
-        <h3 className="font-heading text-burgundy text-sm sm:text-base line-clamp-2 leading-snug">
+        {/* Nombre: 1 sola línea con ellipsis si es muy largo. Esto asegura
+            alineación PERFECTA de los precios y botones entre cards vecinas.
+            Patrón boutique premium (Aesop / Glossier / Cosabella). */}
+        <h3
+          className="font-heading text-burgundy text-sm sm:text-base line-clamp-1 leading-snug"
+          title={producto.nombre}
+        >
           {producto.nombre}
         </h3>
 
@@ -252,13 +257,15 @@ export function ProductoCard({
           )}
         </div>
 
-        {/* Botón / spacer — al final del bloque info, sin estirar */}
+        {/* Botón quick-add — texto responsivo:
+            - Mobile: "Agregar" (corto, entra en 1 línea con icono).
+            - Desktop: "Agregar al carrito" (completo, hay espacio). */}
         {mostrarQuickAdd ? (
           <button
             type="button"
             onClick={onAgregar}
             aria-label={`Agregar ${producto.nombre} al carrito`}
-            className={`mt-1 w-full h-10 inline-flex items-center justify-center gap-1.5 rounded-lg font-semibold text-sm transition-colors ${
+            className={`mt-1 w-full h-10 inline-flex items-center justify-center gap-1.5 rounded-lg font-semibold text-xs sm:text-sm whitespace-nowrap transition-colors ${
               agregado
                 ? "bg-emerald-700 text-cream-light"
                 : "bg-burgundy hover:bg-burgundy-dark text-cream-light"
@@ -266,11 +273,14 @@ export function ProductoCard({
           >
             {agregado ? (
               <>
-                <Check size={16} /> Agregado
+                <Check className="size-4" />
+                <span>Agregado</span>
               </>
             ) : (
               <>
-                <ShoppingBag size={16} /> Agregar al carrito
+                <ShoppingBag className="size-3.5 sm:size-4" />
+                <span className="sm:hidden">Agregar</span>
+                <span className="hidden sm:inline">Agregar al carrito</span>
               </>
             )}
           </button>
