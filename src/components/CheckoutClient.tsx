@@ -7,8 +7,17 @@ import { ArrowLeft, ShoppingBag, Loader2 } from "lucide-react";
 import { initMercadoPago, Payment } from "@mercadopago/sdk-react";
 import type { ConfigWeb } from "@/lib/api";
 import { useCart } from "@/contexts/CartContext";
-import { fmtMonto } from "@/lib/cart";
+import { fmtMonto, calcularPaqueteCarrito } from "@/lib/cart";
 import { trackEvent } from "@/lib/analytics";
+
+type OpcionEnvioRemota = {
+  tipo: "domicilio" | "sucursal";
+  precio: number;
+  plazoMinDias: number;
+  plazoMaxDias: number;
+  transportista: string;
+  descripcion: string;
+};
 
 const MP_PUBLIC_KEY = (process.env.NEXT_PUBLIC_MP_PUBLIC_KEY || "").trim();
 const MP_ENABLED = MP_PUBLIC_KEY.length > 0;
@@ -76,6 +85,14 @@ export function CheckoutClient({ config }: { config: ConfigWeb }) {
   const [brickListo, setBrickListo] = useState(false);
   const brickContainerRef = useRef<HTMLDivElement | null>(null);
 
+  // ─── Cotización envío Correo Argentino (B.2) ──────────────────────────────
+  const [cotizacion, setCotizacion] = useState<{
+    domicilio: OpcionEnvioRemota | null;
+    sucursal: OpcionEnvioRemota | null;
+  }>({ domicilio: null, sucursal: null });
+  const [cargandoCotizacion, setCargandoCotizacion] = useState(false);
+  const [errorCotizacion, setErrorCotizacion] = useState<string | null>(null);
+
   // Asegurar SDK MP inicializado del lado cliente
   useEffect(() => {
     asegurarMPInit();
@@ -142,12 +159,82 @@ export function CheckoutClient({ config }: { config: ConfigWeb }) {
       )}`
     : null;
 
+  // Costo del envío según opción elegida + cotización vigente.
+  const costoEnvio = useMemo(() => {
+    if (form.envio === "showroom") return 0;
+    const opc = cotizacion[form.envio];
+    return opc?.precio || 0;
+  }, [form.envio, cotizacion]);
+
   // Total según método de pago elegido. MP cobra precio TN (cubre comisión + cuotas SI).
   // WhatsApp cobra precio EFT (20% off — cliente coordina transferencia directa).
+  // Suma el costo del envío al final (showroom = 0).
   const totalConEnvio = useMemo(() => {
-    // Por ahora envío manual a coordinar (0). En B.2 esto consulta /api/envios/cotizar.
-    return form.metodoPago === "mp" ? totalTn : total;
-  }, [total, totalTn, form.metodoPago]);
+    const subtotal = form.metodoPago === "mp" ? totalTn : total;
+    return subtotal + costoEnvio;
+  }, [total, totalTn, form.metodoPago, costoEnvio]);
+
+  // Cotizar envío Correo Argentino con debounce — se dispara cuando el CP es
+  // válido (4-5 dígitos) y el método de envío es domicilio/sucursal. Reusa
+  // cotización entre cambios de "domicilio" y "sucursal" porque el endpoint
+  // devuelve ambas en una sola llamada.
+  useEffect(() => {
+    if (form.envio === "showroom") {
+      setCotizacion({ domicilio: null, sucursal: null });
+      setErrorCotizacion(null);
+      setCargandoCotizacion(false);
+      return;
+    }
+    const cp = (form.codigoPostal || "").trim();
+    if (!/^\d{4,5}$/.test(cp) || items.length === 0) {
+      setCotizacion({ domicilio: null, sucursal: null });
+      setErrorCotizacion(null);
+      setCargandoCotizacion(false);
+      return;
+    }
+    const paquete = calcularPaqueteCarrito(items);
+    setCargandoCotizacion(true);
+    setErrorCotizacion(null);
+    const ctrl = new AbortController();
+    const timer = setTimeout(async () => {
+      try {
+        const r = await fetch("/api/envios/cotizar", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          signal: ctrl.signal,
+          body: JSON.stringify({
+            cpDestino: cp,
+            pesoGramos: paquete.pesoGramos,
+            altoCm: paquete.altoCm,
+            anchoCm: paquete.anchoCm,
+            profundidadCm: paquete.profundidadCm,
+            tipoEntrega: "ambas",
+          }),
+        });
+        const data = await r.json().catch(() => ({}));
+        if (!r.ok || !data?.ok) {
+          throw new Error(data?.message || "No pudimos cotizar el envío.");
+        }
+        const ops: OpcionEnvioRemota[] = Array.isArray(data.opciones) ? data.opciones : [];
+        setCotizacion({
+          domicilio: ops.find((o) => o.tipo === "domicilio") || null,
+          sucursal: ops.find((o) => o.tipo === "sucursal") || null,
+        });
+        setCargandoCotizacion(false);
+      } catch (err) {
+        if ((err as { name?: string })?.name === "AbortError") return;
+        setErrorCotizacion(
+          err instanceof Error ? err.message : "No pudimos cotizar el envío.",
+        );
+        setCotizacion({ domicilio: null, sucursal: null });
+        setCargandoCotizacion(false);
+      }
+    }, 400);
+    return () => {
+      clearTimeout(timer);
+      ctrl.abort();
+    };
+  }, [form.codigoPostal, form.envio, items]);
 
   // Callbacks estables para PaymentBrickIsolated — useCallback evita que las
   // props cambien en cada render del padre y rompan la memoización del Brick.
@@ -523,18 +610,48 @@ export function CheckoutClient({ config }: { config: ConfigWeb }) {
                 seleccionada={form.envio}
                 onSeleccionar={(v) => actualizar("envio", v)}
                 titulo="Envío a domicilio"
-                descripcion="Correo Argentino — todo el país. Cotización al pagar."
-                precio={null}
+                descripcion={
+                  cotizacion.domicilio
+                    ? `Correo Argentino — Llega en ${cotizacion.domicilio.plazoMinDias}-${cotizacion.domicilio.plazoMaxDias} días hábiles.`
+                    : "Correo Argentino — Ingresá el CP para cotizar."
+                }
+                precio={cotizacion.domicilio?.precio ?? null}
               />
               <OpcionEnvio
                 value="sucursal"
                 seleccionada={form.envio}
                 onSeleccionar={(v) => actualizar("envio", v)}
                 titulo="Retiro en sucursal de Correo Argentino"
-                descripcion="Más económico que domicilio. Cotización al pagar."
-                precio={null}
+                descripcion={
+                  cotizacion.sucursal
+                    ? `Más económico que domicilio. Llega en ${cotizacion.sucursal.plazoMinDias}-${cotizacion.sucursal.plazoMaxDias} días hábiles.`
+                    : "Más económico que domicilio. Ingresá el CP para cotizar."
+                }
+                precio={cotizacion.sucursal?.precio ?? null}
               />
             </div>
+
+            {/* Feedback de cotización (loading / error) — solo cuando elegiste domicilio o sucursal */}
+            {form.envio !== "showroom" && (
+              <div className="mt-3 text-sm">
+                {cargandoCotizacion && (
+                  <div className="inline-flex items-center gap-2 text-ink/70">
+                    <Loader2 size={14} className="animate-spin" />
+                    Cotizando envío…
+                  </div>
+                )}
+                {!cargandoCotizacion && errorCotizacion && (
+                  <div className="text-burgundy bg-rose/10 border border-rose/30 rounded p-2">
+                    {errorCotizacion}
+                  </div>
+                )}
+                {!cargandoCotizacion && !errorCotizacion && !cotizacion.domicilio && !cotizacion.sucursal && (
+                  <div className="text-ink/60 italic">
+                    Ingresá el código postal abajo para ver el costo del envío.
+                  </div>
+                )}
+              </div>
+            )}
 
             {form.envio !== "showroom" && (
               <div className="mt-4 grid sm:grid-cols-2 gap-4">
@@ -773,8 +890,14 @@ export function CheckoutClient({ config }: { config: ConfigWeb }) {
               </div>
               <div className="flex justify-between">
                 <dt className="text-ink/70">Envío</dt>
-                <dd className="text-ink/60 italic">
-                  {form.envio === "showroom" ? "Sin costo" : "se calcula al pagar"}
+                <dd className={costoEnvio > 0 ? "font-semibold text-ink" : "text-ink/60 italic"}>
+                  {form.envio === "showroom"
+                    ? "Sin costo"
+                    : cargandoCotizacion
+                      ? "Cotizando…"
+                      : costoEnvio > 0
+                        ? fmtMonto(costoEnvio)
+                        : "Ingresá CP"}
                 </dd>
               </div>
               {muestraDualPago && form.metodoPago === "whatsapp" && (

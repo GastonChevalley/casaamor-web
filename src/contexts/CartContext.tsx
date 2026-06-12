@@ -140,6 +140,12 @@ export function CartProvider({ children }: { children: ReactNode }) {
           cantidad: cantidadInc,
           fotoUrl: payload.fotoUrl,
           slug: payload.slug,
+          // Logística (B.2) — opcional. Si llega 0 o undefined,
+          // calcularPaqueteCarrito usa defaults genéricos.
+          pesoKg: payload.pesoKg,
+          altoCm: payload.altoCm,
+          anchoCm: payload.anchoCm,
+          profundidadCm: payload.profundidadCm,
         },
       ];
     });

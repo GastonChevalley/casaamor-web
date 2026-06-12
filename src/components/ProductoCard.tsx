@@ -117,6 +117,11 @@ export function ProductoCard({
       precioUnitTn: precioTnConOferta,
       fotoUrl: fotos[0],
       slug: producto.sku,
+      // Logística para cotizador (B.2)
+      pesoKg: producto.pesoKg,
+      altoCm: producto.altoCm,
+      anchoCm: producto.anchoCm,
+      profundidadCm: producto.profundidadCm,
     });
     setAgregado(true);
     if (agregadoTimerRef.current) clearTimeout(agregadoTimerRef.current);

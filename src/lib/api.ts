@@ -94,6 +94,13 @@ export type Producto = {
   // Productos sugeridos/relacionados — solo presente en detalle (_apiProducto_) — Addendum 72
   productosRelacionados?: string[];  // SKUs curados a mano (solo para admin write)
   relacionados?: Producto[];          // computado por backend, máx 4 cards con shape de catálogo
+  // Logística (B.2) — para que el carrito sume peso/dim y el cotizador Correo
+  // los use. Defaults: 0 si la dueña no los cargó (el endpoint /api/envios/cotizar
+  // tratará esto como "usar fallback de 0.5 kg").
+  pesoKg?: number;
+  altoCm?: number;
+  anchoCm?: number;
+  profundidadCm?: number;
 };
 
 export type CategoriaHija = {
