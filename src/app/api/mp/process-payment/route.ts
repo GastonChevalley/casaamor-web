@@ -109,18 +109,41 @@ export async function POST(req: NextRequest) {
     description: body.description,
   };
 
-  const pago = await procesarPago(input);
-  if (!pago) {
+  const resultado = await procesarPago(input);
+  if (!resultado.ok) {
+    // Extraer mensaje y código causa de MP para que el frontend pueda mostrar
+    // detalle útil al cliente (y al dev para debug). MP devuelve típicamente
+    // un body { message, error, status, cause: [{code, description}] }.
+    let mpMensaje = "MP no aceptó la solicitud de pago.";
+    let mpCausa: string | undefined;
+    const mpBody = resultado.mpBody as
+      | { message?: string; error?: string; cause?: Array<{ code?: number | string; description?: string }> }
+      | undefined;
+    if (mpBody && typeof mpBody === "object") {
+      if (typeof mpBody.message === "string" && mpBody.message) mpMensaje = mpBody.message;
+      if (Array.isArray(mpBody.cause) && mpBody.cause.length > 0) {
+        const first = mpBody.cause[0];
+        if (first?.description) mpCausa = String(first.description);
+      }
+    }
+
     return NextResponse.json(
       {
         ok: false,
         error: "mp_payment_failed",
-        message: "No pudimos procesar el pago. Probá de nuevo o coordiná por WhatsApp.",
+        message: `MP rechazó el pago. ${mpMensaje}${mpCausa ? ` — ${mpCausa}` : ""}`,
+        // Detalle técnico para diagnóstico (NO contiene datos sensibles).
+        debug: {
+          mpHttpStatus: resultado.status,
+          mpMessage: mpMensaje,
+          mpCausa,
+        },
       },
       { status: 502, headers: rateLimitHeaders(LIMIT, rl) },
     );
   }
 
+  const pago = resultado.payment;
   return NextResponse.json(
     {
       ok: true,

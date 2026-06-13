@@ -349,7 +349,15 @@ export function CheckoutClient({ config }: { config: ConfigWeb }) {
       console.log("[checkout] response status", r.status);
 
       const text = await r.text().catch(() => "");
-      let data: { ok?: boolean; message?: string; status?: string; paymentId?: string; statusDetail?: string; error?: string } = {};
+      let data: {
+        ok?: boolean;
+        message?: string;
+        status?: string;
+        paymentId?: string;
+        statusDetail?: string;
+        error?: string;
+        debug?: { mpHttpStatus?: number; mpMessage?: string; mpCausa?: string };
+      } = {};
       try {
         data = JSON.parse(text);
       } catch {
@@ -366,13 +374,19 @@ export function CheckoutClient({ config }: { config: ConfigWeb }) {
       }
 
       if (!r.ok || !data?.ok) {
+        // eslint-disable-next-line no-console
+        console.error("[checkout] backend devolvió error", { status: r.status, data });
+        // Mensaje principal viene del backend (ya incluye detalle MP si aplica)
         const msg =
           data?.message ||
           data?.error ||
           `Error HTTP ${r.status}. Probá con otra tarjeta o coordiná por WhatsApp.`;
-        // eslint-disable-next-line no-console
-        console.error("[checkout] backend devolvió error", { status: r.status, data });
-        setError(msg);
+        // Si el backend pasó debug detallado, anexarlo al mensaje visible
+        const dbg = data?.debug;
+        const msgConDebug = dbg
+          ? `${msg}\n\n🔍 Detalle técnico:\n• MP HTTP ${dbg.mpHttpStatus}: ${dbg.mpMessage || "(sin mensaje)"}${dbg.mpCausa ? `\n• Causa: ${dbg.mpCausa}` : ""}`
+          : msg;
+        setError(msgConDebug);
         throw new Error(msg);
       }
 
@@ -973,7 +987,7 @@ export function CheckoutClient({ config }: { config: ConfigWeb }) {
             )}
 
             {error && (
-              <div className="mt-3 text-sm text-burgundy bg-rose/10 border border-rose/30 rounded p-3">
+              <div className="mt-3 text-sm text-burgundy bg-rose/10 border border-rose/30 rounded p-3 whitespace-pre-wrap">
                 {error}
                 {waLink && (
                   <a

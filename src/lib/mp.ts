@@ -181,9 +181,19 @@ export type ProcessPaymentInput = {
  *
  * https://www.mercadopago.com.ar/developers/es/reference/payments/_payments/post
  */
-export async function procesarPago(input: ProcessPaymentInput): Promise<MPPayment | null> {
+/**
+ * Resultado de `procesarPago` — siempre devuelve detalle (sea OK o error)
+ * para que el endpoint pueda propagar al frontend.
+ */
+export type ProcesarPagoResult =
+  | { ok: true; payment: MPPayment }
+  | { ok: false; status: number; mpError: string; mpBody?: unknown };
+
+export async function procesarPago(input: ProcessPaymentInput): Promise<ProcesarPagoResult> {
   const token = process.env.MP_ACCESS_TOKEN || "";
-  if (!token) return null;
+  if (!token) {
+    return { ok: false, status: 503, mpError: "MP_ACCESS_TOKEN no configurado" };
+  }
 
   const body = {
     token: input.token,
@@ -214,14 +224,24 @@ export async function procesarPago(input: ProcessPaymentInput): Promise<MPPaymen
       cache: "no-store",
     });
     if (!r.ok) {
-      const errBody = await r.text().catch(() => "");
-      console.error("[mp/procesarPago] error API", r.status, errBody);
-      return null;
+      const errText = await r.text().catch(() => "");
+      let parsed: unknown = errText;
+      try {
+        parsed = JSON.parse(errText);
+      } catch {
+        /* mantener texto plano */
+      }
+      console.error("[mp/procesarPago] error API", r.status, errText);
+      return { ok: false, status: r.status, mpError: errText.slice(0, 500), mpBody: parsed };
     }
-    return (await r.json()) as MPPayment;
+    return { ok: true, payment: (await r.json()) as MPPayment };
   } catch (err) {
     console.error("[mp/procesarPago] excepción", err);
-    return null;
+    return {
+      ok: false,
+      status: 0,
+      mpError: err instanceof Error ? err.message : String(err),
+    };
   }
 }
 
