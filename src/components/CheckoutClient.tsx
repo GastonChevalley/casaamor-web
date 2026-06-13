@@ -125,7 +125,13 @@ export function CheckoutClient({ config }: { config: ConfigWeb }) {
   // el siguiente paso (los datos quedaron arriba).
   useEffect(() => {
     if (preferenceId && brickContainerRef.current) {
-      brickContainerRef.current.scrollIntoView({ behavior: "smooth", block: "start" });
+      // Calcular offset del header sticky en mobile (top bar + buscador ≈ 120px,
+      // en desktop ≈ 75px). Usamos window.matchMedia para detectar mobile.
+      const isMobile = typeof window !== "undefined" && window.matchMedia("(max-width: 767px)").matches;
+      const headerOffset = isMobile ? 140 : 90; // px de margen extra arriba del brick
+      const rect = brickContainerRef.current.getBoundingClientRect();
+      const targetY = rect.top + window.scrollY - headerOffset;
+      window.scrollTo({ top: targetY, behavior: "smooth" });
     }
   }, [preferenceId]);
 
@@ -385,14 +391,33 @@ export function CheckoutClient({ config }: { config: ConfigWeb }) {
       } else {
         // rejected / cancelled — dejar al Brick mostrar el error inline
         // para que el cliente pueda reintentar con otra tarjeta sin salir.
+        const sd = String(data.statusDetail || "");
         const friendly =
-          data.statusDetail === "cc_rejected_insufficient_amount"
+          sd === "cc_rejected_insufficient_amount"
             ? "Saldo insuficiente. Probá con otra tarjeta."
-            : data.statusDetail === "cc_rejected_bad_filled_security_code"
-              ? "Código de seguridad incorrecto."
-              : data.statusDetail === "cc_rejected_bad_filled_date"
+            : sd === "cc_rejected_bad_filled_security_code"
+              ? "Código de seguridad (CVV) incorrecto. Revisá los 3 números del dorso."
+              : sd === "cc_rejected_bad_filled_date"
                 ? "Fecha de vencimiento incorrecta."
-                : "Tarjeta rechazada. Probá con otra o coordiná por WhatsApp.";
+                : sd === "cc_rejected_bad_filled_card_number"
+                  ? "Número de tarjeta incorrecto. Revisalo y reintentá."
+                  : sd === "cc_rejected_bad_filled_other"
+                    ? "Algún dato de la tarjeta es incorrecto. Revisá todos los campos."
+                    : sd === "cc_rejected_call_for_authorize"
+                      ? "Tu banco bloqueó el pago por seguridad. Llamá al 0800 del banco, autorizá un cobro de CasaAmor y reintentá. (Es común en el primer cobro a un comercio nuevo)."
+                      : sd === "cc_rejected_high_risk"
+                        ? "Mercado Pago detectó riesgo. Probá con otra tarjeta o coordiná por WhatsApp."
+                        : sd === "cc_rejected_card_disabled"
+                          ? "Tu tarjeta no está activa. Llamá al banco para habilitarla."
+                          : sd === "cc_rejected_blacklist"
+                            ? "Esta tarjeta no puede usarse para pagar. Probá con otra."
+                            : sd === "cc_rejected_duplicated_payment"
+                              ? "Ya hiciste este pago hace unos segundos. Esperá unos minutos antes de reintentar."
+                              : sd === "cc_rejected_max_attempts"
+                                ? "Llegaste al máximo de intentos. Probá con otra tarjeta o esperá unos minutos."
+                                : sd === "cc_rejected_other_reason"
+                                  ? "Tu banco rechazó el pago. Llamá al banco o probá con otra tarjeta."
+                                  : `Pago rechazado por MP (código: ${sd || "desconocido"}). Probá con otra tarjeta o coordiná por WhatsApp.`;
         setError(friendly);
         throw new Error(friendly);
       }
