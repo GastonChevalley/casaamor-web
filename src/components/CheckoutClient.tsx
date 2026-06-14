@@ -82,6 +82,14 @@ export function CheckoutClient({ config }: { config: ConfigWeb }) {
   // External reference de la preference activa — la usamos en process-payment
   // para que el webhook pueda matchear el pago con la preference original.
   const [externalRefSnapshot, setExternalRefSnapshot] = useState<string | null>(null);
+  // Snapshot del monto congelado al crear la preference. CRÍTICO: si pasáramos
+  // `totalConEnvio` directo al Brick, cualquier edición posterior del CP o del
+  // método de envío recalcula totalConEnvio → react.memo del PaymentBrickIsolated
+  // detecta amount nuevo → re-render → useMemo de `initialization` da nuevo
+  // objeto → SDK MP desmonta+remonta el iframe → card_token vivo se invalida
+  // → siguiente "Pagar" devuelve 400 "Card Token not found". Congelar el monto
+  // acá garantiza identidad estable mientras el Brick está montado.
+  const [amountSnapshot, setAmountSnapshot] = useState<number | null>(null);
   const [brickListo, setBrickListo] = useState(false);
   const brickContainerRef = useRef<HTMLDivElement | null>(null);
   // Lock para prevenir doble-submit del Brick. Si el usuario apreta "Pagar" 2
@@ -280,7 +288,10 @@ export function CheckoutClient({ config }: { config: ConfigWeb }) {
       preferenceId,
       externalRefSnapshot,
       payerEmail: payerSnapshot?.email || "",
-      totalConEnvio,
+      // El monto que se cobra es el congelado al crear la preference, no el
+      // recalculado en vivo. Si cambiamos a totalConEnvio acá, podríamos
+      // cobrar un monto distinto al que vio el Brick → inconsistencia.
+      totalConEnvio: amountSnapshot ?? totalConEnvio,
       itemsLength: items.length,
     };
   });
@@ -300,6 +311,7 @@ export function CheckoutClient({ config }: { config: ConfigWeb }) {
     setPreferenceId(null);
     setPayerSnapshot(null);
     setExternalRefSnapshot(null);
+    setAmountSnapshot(null);
   }, []);
 
   // Procesa el pago cuando el usuario aprieta "Pagar" del Brick.
@@ -653,6 +665,9 @@ export function CheckoutClient({ config }: { config: ConfigWeb }) {
         lastName: partes.slice(1).join(" ") || "",
       });
       setExternalRefSnapshot((data.externalReference as string) || null);
+      // Congelar el monto que vio el Brick. NUNCA leer totalConEnvio en el JSX
+      // del Brick — esa ref fluctúa con CP/envío y dispara remounts mid-flight.
+      setAmountSnapshot(totalConEnvio);
       setPreferenceId(data.preferenceId as string);
     } catch {
       setEnviando(false);
@@ -836,7 +851,10 @@ export function CheckoutClient({ config }: { config: ConfigWeb }) {
                   onClick={() => {
                     actualizar("metodoPago", "mp");
                     // Si cambia de WA a MP, resetear preferenceId para que se cree de nuevo
-                    if (form.metodoPago === "whatsapp") setPreferenceId(null);
+                    if (form.metodoPago === "whatsapp") {
+                      setPreferenceId(null);
+                      setAmountSnapshot(null);
+                    }
                   }}
                   aria-pressed={form.metodoPago === "mp"}
                   className={`w-full text-left rounded-lg border-2 p-4 transition-colors ${
@@ -865,6 +883,7 @@ export function CheckoutClient({ config }: { config: ConfigWeb }) {
                   onClick={() => {
                     actualizar("metodoPago", "whatsapp");
                     setPreferenceId(null);
+                    setAmountSnapshot(null);
                   }}
                   aria-pressed={form.metodoPago === "whatsapp"}
                   className={`w-full text-left rounded-lg border-2 p-4 transition-colors ${
@@ -921,6 +940,7 @@ export function CheckoutClient({ config }: { config: ConfigWeb }) {
                       setPreferenceId(null);
                       setPayerSnapshot(null);
                       setExternalRefSnapshot(null);
+                      setAmountSnapshot(null);
                       setError(null);
                     }}
                     className="text-xs text-burgundy hover:text-gold underline inline-flex items-center gap-1 shrink-0"
@@ -944,13 +964,19 @@ export function CheckoutClient({ config }: { config: ConfigWeb }) {
                       <div className="text-sm text-burgundy/70">Cargando opciones de pago…</div>
                     </div>
                   )}
-                  {payerSnapshot && (
+                  {payerSnapshot && amountSnapshot !== null && (
                     <PaymentBrickIsolated
                       // key compuesto: preferenceId + paymentKey. Bumpear paymentKey
                       // (en onBrickError) fuerza un remount limpio del Brick.
                       key={`${preferenceId}-${paymentKey}`}
                       preferenceId={preferenceId}
-                      amount={totalConEnvio}
+                      // CRÍTICO: amountSnapshot (no totalConEnvio). Si pasáramos
+                      // totalConEnvio acá, cualquier edición posterior del CP o
+                      // método de envío recalcula amount → react.memo deja
+                      // pasar el render → useMemo de initialization da nuevo
+                      // objeto → SDK MP remonta el iframe → token vivo se
+                      // invalida → 400 "Card Token not found" al apretar Pagar.
+                      amount={amountSnapshot}
                       payerEmail={payerSnapshot.email}
                       payerFirstName={payerSnapshot.firstName}
                       payerLastName={payerSnapshot.lastName}
