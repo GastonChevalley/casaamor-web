@@ -90,6 +90,34 @@ export function CheckoutClient({ config }: { config: ConfigWeb }) {
   // mientras hay una request en vuelo.
   const procesandoPagoRef = useRef<boolean>(false);
 
+  // CRÍTICO — anti re-mount del Brick.
+  // El SDK del Payment Brick tiene `onSubmit` en su useEffect deps internas
+  // (verificado en source de @mercadopago/sdk-react). Si el callback cambia
+  // de referencia, el Brick se DESMONTA Y REMONTA mid-flight, lo que puede
+  // disparar onSubmit 2 veces → el primer POST consume el card_token → el
+  // segundo POST falla con "Card Token not found".
+  //
+  // Solución: el callback `onBrickSubmitProcess` se memoiza con deps=[] y
+  // lee los valores volátiles desde este ref (que se mantiene sincronizado
+  // por un useEffect). Así el callback NUNCA cambia de identidad → el SDK
+  // del Brick no remonta → token sigue válido → único POST exitoso.
+  const submitDataRef = useRef<{
+    preferenceId: string | null;
+    externalRefSnapshot: string | null;
+    payerEmail: string;
+    totalConEnvio: number;
+    itemsLength: number;
+  }>({
+    preferenceId: null,
+    externalRefSnapshot: null,
+    payerEmail: "",
+    totalConEnvio: 0,
+    itemsLength: 0,
+  });
+  // Key para force-remount del Brick como fallback si algo se atasca.
+  // Bumpeamos en onBrickError (workaround documentado por MP: discussion #137).
+  const [paymentKey, setPaymentKey] = useState<string>("1");
+
   // ─── Cotización envío Correo Argentino (B.2) ──────────────────────────────
   const [cotizacion, setCotizacion] = useState<{
     domicilio: OpcionEnvioRemota | null;
@@ -244,6 +272,19 @@ export function CheckoutClient({ config }: { config: ConfigWeb }) {
     };
   }, [form.codigoPostal, form.envio, items]);
 
+  // Sincronizar submitDataRef con los valores actuales — corre en cada render
+  // pero solo TOCA el ref (no dispara re-render). El callback onBrickSubmit
+  // siempre leerá los valores actualizados aunque su identidad nunca cambie.
+  useEffect(() => {
+    submitDataRef.current = {
+      preferenceId,
+      externalRefSnapshot,
+      payerEmail: payerSnapshot?.email || "",
+      totalConEnvio,
+      itemsLength: items.length,
+    };
+  });
+
   // Callbacks estables para PaymentBrickIsolated — useCallback evita que las
   // props cambien en cada render del padre y rompan la memoización del Brick.
   const onBrickReady = useCallback(() => {
@@ -254,6 +295,8 @@ export function CheckoutClient({ config }: { config: ConfigWeb }) {
     setError(
       "Hubo un problema al cargar el medio de pago. Tocá 'Editar datos' arriba y volvé a intentar, o coordiná por WhatsApp.",
     );
+    // Force-remount del Brick (workaround MP discussion #137).
+    setPaymentKey(String(Date.now()));
     setPreferenceId(null);
     setPayerSnapshot(null);
     setExternalRefSnapshot(null);
@@ -283,6 +326,14 @@ export function CheckoutClient({ config }: { config: ConfigWeb }) {
         payer?: { email?: string; identification?: { type?: string; number?: string } };
       };
     }) => {
+      // CRÍTICO: leer valores volátiles desde el REF, no desde closure.
+      // Si los leyera desde closure, el useCallback necesitaría deps que
+      // cambian (preferenceId, totalConEnvio, etc.) → cada render recrearía
+      // este callback → el SDK del Brick lo ve como prop nueva → DESMONTA Y
+      // REMONTA el Brick mid-flight → doble dispatch de onSubmit → primer
+      // POST consume el card_token → segundo POST falla con "Card Token not
+      // found".
+      const snap = submitDataRef.current;
       const formData = args?.formData || {};
       const selected = args?.selectedPaymentMethod || "";
 
@@ -299,9 +350,9 @@ export function CheckoutClient({ config }: { config: ConfigWeb }) {
       });
 
       trackEvent("payment_brick_submit", {
-        preference_id: preferenceId,
+        preference_id: snap.preferenceId,
         selected_method: selected,
-        total: totalConEnvio,
+        total: snap.totalConEnvio,
       });
 
       // Sin token = método Wallet (Mercado Pago). El Brick redirige por su
@@ -312,7 +363,7 @@ export function CheckoutClient({ config }: { config: ConfigWeb }) {
         return;
       }
 
-      if (!externalRefSnapshot) {
+      if (!snap.externalRefSnapshot) {
         const msg = "Falta external reference. Tocá 'Editar datos' y volvé a continuar al pago.";
         setError(msg);
         throw new Error(msg);
@@ -323,8 +374,10 @@ export function CheckoutClient({ config }: { config: ConfigWeb }) {
       // El ref es síncrono, mucho más confiable que un state para esto.
       if (procesandoPagoRef.current) {
         // eslint-disable-next-line no-console
-        console.warn("[checkout] segundo submit detectado, ignorando para no consumir el token de nuevo");
-        return;
+        console.warn("[checkout] segundo submit detectado, REJECT para que el Brick resetee");
+        // CRÍTICO: rejectar (no return). Según docs MP (discussion #137),
+        // el Brick resetea correctamente solo cuando se rechaza la promesa.
+        throw new Error("Procesando un pago anterior. Esperá unos segundos.");
       }
       procesandoPagoRef.current = true;
 
@@ -340,13 +393,13 @@ export function CheckoutClient({ config }: { config: ConfigWeb }) {
             payment_method_id: formData.payment_method_id,
             issuer_id: formData.issuer_id,
             installments: formData.installments || 1,
-            transaction_amount: formData.transaction_amount || totalConEnvio,
+            transaction_amount: formData.transaction_amount || snap.totalConEnvio,
             payer: {
-              email: formData.payer?.email || payerSnapshot?.email,
+              email: formData.payer?.email || snap.payerEmail,
               identification: formData.payer?.identification,
             },
-            externalReference: externalRefSnapshot,
-            description: `Compra CasaAmor (${items.length} ${items.length === 1 ? "ítem" : "ítems"})`,
+            externalReference: snap.externalRefSnapshot,
+            description: `Compra CasaAmor (${snap.itemsLength} ${snap.itemsLength === 1 ? "ítem" : "ítems"})`,
           }),
         });
       } catch (err) {
@@ -424,7 +477,7 @@ export function CheckoutClient({ config }: { config: ConfigWeb }) {
 
       // eslint-disable-next-line no-console
       console.log("[checkout] pago procesado", { status, paymentId });
-      trackEvent("payment_processed", { status, paymentId, preference_id: preferenceId });
+      trackEvent("payment_processed", { status, paymentId, preference_id: snap.preferenceId });
 
       // Redirigir a la página de resultado correspondiente
       if (status === "approved") {
@@ -466,7 +519,11 @@ export function CheckoutClient({ config }: { config: ConfigWeb }) {
         throw new Error(friendly);
       }
     },
-    [preferenceId, totalConEnvio, externalRefSnapshot, payerSnapshot, items.length, router],
+    // CRÍTICO: deps vacías. Todo lo volátil viene de submitDataRef + router
+    // es estable. El callback nunca cambia de identidad → el SDK del Brick
+    // no remonta → token mantiene validez.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+    [router],
   );
 
   function actualizar<K extends keyof typeof form>(key: K, valor: (typeof form)[K]) {
@@ -889,7 +946,9 @@ export function CheckoutClient({ config }: { config: ConfigWeb }) {
                   )}
                   {payerSnapshot && (
                     <PaymentBrickIsolated
-                      key={preferenceId}
+                      // key compuesto: preferenceId + paymentKey. Bumpear paymentKey
+                      // (en onBrickError) fuerza un remount limpio del Brick.
+                      key={`${preferenceId}-${paymentKey}`}
                       preferenceId={preferenceId}
                       amount={totalConEnvio}
                       payerEmail={payerSnapshot.email}
