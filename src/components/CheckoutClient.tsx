@@ -84,6 +84,11 @@ export function CheckoutClient({ config }: { config: ConfigWeb }) {
   const [externalRefSnapshot, setExternalRefSnapshot] = useState<string | null>(null);
   const [brickListo, setBrickListo] = useState(false);
   const brickContainerRef = useRef<HTMLDivElement | null>(null);
+  // Lock para prevenir doble-submit del Brick. Si el usuario apreta "Pagar" 2
+  // veces o el SDK dispara onSubmit dos veces, el primer POST consume el
+  // card_token y el segundo falla con "Card Token not found". Este ref bloquea
+  // mientras hay una request en vuelo.
+  const procesandoPagoRef = useRef<boolean>(false);
 
   // ─── Cotización envío Correo Argentino (B.2) ──────────────────────────────
   const [cotizacion, setCotizacion] = useState<{
@@ -118,20 +123,17 @@ export function CheckoutClient({ config }: { config: ConfigWeb }) {
   useEffect(() => {
     if (preferenceId === null) {
       setBrickListo(false);
+      procesandoPagoRef.current = false; // liberar lock al desmontar brick
     }
   }, [preferenceId]);
 
-  // Cuando se monta el Brick, scrollear suavemente para que el usuario vea
-  // el siguiente paso (los datos quedaron arriba).
+  // Cuando se monta el Brick, scrollear al contenedor. Usamos scrollIntoView
+  // simple — el offset del header sticky lo maneja `scroll-mt-*` en el JSX
+  // (CSS scroll-margin-top), que es lo único que respeta correctamente el
+  // browser mobile cuando el address bar se contrae con el scroll.
   useEffect(() => {
     if (preferenceId && brickContainerRef.current) {
-      // Calcular offset del header sticky en mobile (top bar + buscador ≈ 120px,
-      // en desktop ≈ 75px). Usamos window.matchMedia para detectar mobile.
-      const isMobile = typeof window !== "undefined" && window.matchMedia("(max-width: 767px)").matches;
-      const headerOffset = isMobile ? 140 : 90; // px de margen extra arriba del brick
-      const rect = brickContainerRef.current.getBoundingClientRect();
-      const targetY = rect.top + window.scrollY - headerOffset;
-      window.scrollTo({ top: targetY, behavior: "smooth" });
+      brickContainerRef.current.scrollIntoView({ behavior: "smooth", block: "start" });
     }
   }, [preferenceId]);
 
@@ -316,6 +318,16 @@ export function CheckoutClient({ config }: { config: ConfigWeb }) {
         throw new Error(msg);
       }
 
+      // Prevenir doble-submit: si ya hay una request en vuelo, el segundo
+      // intento del mismo card_token va a fallar con "Card Token not found".
+      // El ref es síncrono, mucho más confiable que un state para esto.
+      if (procesandoPagoRef.current) {
+        // eslint-disable-next-line no-console
+        console.warn("[checkout] segundo submit detectado, ignorando para no consumir el token de nuevo");
+        return;
+      }
+      procesandoPagoRef.current = true;
+
       // Procesar tarjeta vía nuestro endpoint
       let r: Response;
       try {
@@ -340,6 +352,7 @@ export function CheckoutClient({ config }: { config: ConfigWeb }) {
       } catch (err) {
         // eslint-disable-next-line no-console
         console.error("[checkout] fetch falló (red/CORS/SSO)", err);
+        procesandoPagoRef.current = false; // liberar lock para reintento
         const msg = "No pudimos contactar el servidor de pagos. Verificá tu conexión y reintentá.";
         setError(msg);
         throw new Error(msg);
@@ -376,17 +389,33 @@ export function CheckoutClient({ config }: { config: ConfigWeb }) {
       if (!r.ok || !data?.ok) {
         // eslint-disable-next-line no-console
         console.error("[checkout] backend devolvió error", { status: r.status, data });
-        // Mensaje principal viene del backend (ya incluye detalle MP si aplica)
-        const msg =
-          data?.message ||
-          data?.error ||
-          `Error HTTP ${r.status}. Probá con otra tarjeta o coordiná por WhatsApp.`;
-        // Si el backend pasó debug detallado, anexarlo al mensaje visible
+        procesandoPagoRef.current = false; // liberar lock para reintento
         const dbg = data?.debug;
-        const msgConDebug = dbg
-          ? `${msg}\n\n🔍 Detalle técnico:\n• MP HTTP ${dbg.mpHttpStatus}: ${dbg.mpMessage || "(sin mensaje)"}${dbg.mpCausa ? `\n• Causa: ${dbg.mpCausa}` : ""}`
-          : msg;
-        setError(msgConDebug);
+        // Detectar errores conocidos del flow (token expirado / no encontrado)
+        // y dar un mensaje accionable en lugar del genérico de MP.
+        const causaMP = String(dbg?.mpCausa || dbg?.mpMessage || "").toLowerCase();
+        const esTokenInvalido =
+          causaMP.includes("card token not found") ||
+          causaMP.includes("invalid token") ||
+          causaMP.includes("token has expired");
+        let msg: string;
+        if (esTokenInvalido) {
+          msg =
+            "Tu tarjeta se desincronizó (el token expira a los ~7 minutos). " +
+            "Tocá 'Editar datos' arriba, volvé a 'Continuar al pago' y completá la tarjeta de nuevo SIN demorarte. " +
+            "Apretá 'Pagar' una sola vez.";
+        } else {
+          // Mensaje principal viene del backend (ya incluye detalle MP si aplica)
+          const baseMsg =
+            data?.message ||
+            data?.error ||
+            `Error HTTP ${r.status}. Probá con otra tarjeta o coordiná por WhatsApp.`;
+          // Si el backend pasó debug detallado, anexarlo al mensaje visible
+          msg = dbg
+            ? `${baseMsg}\n\n🔍 Detalle técnico:\n• MP HTTP ${dbg.mpHttpStatus}: ${dbg.mpMessage || "(sin mensaje)"}${dbg.mpCausa ? `\n• Causa: ${dbg.mpCausa}` : ""}`
+            : baseMsg;
+        }
+        setError(msg);
         throw new Error(msg);
       }
 
@@ -432,6 +461,7 @@ export function CheckoutClient({ config }: { config: ConfigWeb }) {
                                 : sd === "cc_rejected_other_reason"
                                   ? "Tu banco rechazó el pago. Llamá al banco o probá con otra tarjeta."
                                   : `Pago rechazado por MP (código: ${sd || "desconocido"}). Probá con otra tarjeta o coordiná por WhatsApp.`;
+        procesandoPagoRef.current = false; // liberar lock para reintento
         setError(friendly);
         throw new Error(friendly);
       }
@@ -819,7 +849,10 @@ export function CheckoutClient({ config }: { config: ConfigWeb }) {
 
             {/* Cuando hay preferenceId (rama MP), montar el Payment Brick. */}
             {MP_ENABLED && form.metodoPago === "mp" && preferenceId && (
-              <div className="mt-4" ref={brickContainerRef}>
+              <div
+                className="mt-4 scroll-mt-[160px] md:scroll-mt-[110px]"
+                ref={brickContainerRef}
+              >
                 {/* Header del step de pago: indica claramente que el brick es el único punto de submit */}
                 <div className="flex items-center justify-between gap-3 mb-3">
                   <div className="text-sm text-ink/70">
