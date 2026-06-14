@@ -10,6 +10,8 @@
  *   - MP_WEBHOOK_SECRET → para validar firma del webhook.
  */
 
+import { SITE_URL } from "@/lib/site";
+
 const MP_BASE = "https://api.mercadopago.com";
 
 export type MPPayment = {
@@ -205,7 +207,11 @@ export async function procesarPago(input: ProcessPaymentInput): Promise<Procesar
     external_reference: input.external_reference,
     description: input.description || "Compra CasaAmor",
     statement_descriptor: "CASAAMOR",
-    notification_url: `${process.env.NEXT_PUBLIC_SITE_URL || ""}/api/webhooks/mp`,
+    // CRÍTICO: MP exige notification_url absoluto HTTPS (HTTP 400 si es relativo
+    // o vacío). Usar SITE_URL del helper que tiene fallback inteligente —
+    // garantiza que NUNCA quede `/api/webhooks/mp` (relativo) que rompe el pago.
+    // https://www.mercadopago.com.ar/developers/es/docs/your-integrations/notifications/webhooks
+    notification_url: `${SITE_URL}/api/webhooks/mp`,
     binary_mode: false,
   };
 
