@@ -217,8 +217,15 @@ export async function procesarPago(input: ProcessPaymentInput): Promise<Procesar
 
   try {
     // Idempotency-Key obligatorio en POST /v1/payments para evitar cobros
-    // duplicados si el usuario refresca o la red falla en el medio del request.
-    const idempotencyKey = `${input.external_reference}-${Date.now()}`;
+    // duplicados. CRÍTICO: usar valor ESTABLE (sin Date.now()). Si el SDK
+    // MP dispara onSubmit dos veces (bug conocido: GitHub discussion #137)
+    // o la red retransmite, las dos llegan con MISMO Idempotency-Key →
+    // MP devuelve la respuesta del primer cobro → cero duplicados, cero
+    // "Card Token not found" por token consumido en el segundo intento.
+    // Combinamos external_reference (único por preference) + prefijo del
+    // token (único por intento) → estable dentro del mismo dispatch pero
+    // distinto entre reintentos con tarjeta nueva.
+    const idempotencyKey = `${input.external_reference}-${input.token.slice(0, 16)}`;
     const r = await fetch(`${MP_BASE}/v1/payments`, {
       method: "POST",
       headers: {

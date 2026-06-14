@@ -97,6 +97,15 @@ export function CheckoutClient({ config }: { config: ConfigWeb }) {
   // card_token y el segundo falla con "Card Token not found". Este ref bloquea
   // mientras hay una request en vuelo.
   const procesandoPagoRef = useRef<boolean>(false);
+  // Lock por token: si el SDK MP dispara onSubmit dos veces con el MISMO
+  // card_token (bug conocido GitHub #137), el segundo dispatch se ignora
+  // ANTES del fetch, evitando que MP reciba 2 POSTs con el mismo token.
+  // El boolean `procesandoPagoRef` no alcanza solo porque hay una micro-
+  // ventana entre la primera lectura `=== false` y el set `= true` durante
+  // la cual el segundo dispatch puede pasar el guard. Usar el token mismo
+  // como sentinel ELIMINA esa ventana porque la comparación es contra un
+  // string único por tarjeta.
+  const ultimoTokenProcesadoRef = useRef<string | null>(null);
 
   // CRÍTICO — anti re-mount del Brick.
   // El SDK del Payment Brick tiene `onSubmit` en su useEffect deps internas
@@ -381,14 +390,24 @@ export function CheckoutClient({ config }: { config: ConfigWeb }) {
         throw new Error(msg);
       }
 
-      // Prevenir doble-submit: si ya hay una request en vuelo, el segundo
-      // intento del mismo card_token va a fallar con "Card Token not found".
-      // El ref es síncrono, mucho más confiable que un state para esto.
+      // CRÍTICO — Lock por token (Addendum 88 B.1.x). Si el SDK MP dispara
+      // onSubmit dos veces con el MISMO card_token (bug GitHub #137), la
+      // segunda llamada se silencia ANTES del fetch. Confirmado por el
+      // reporte de Metrics de MP del 14/06: dos POSTs simultáneos a
+      // /v1/payments en el mismo segundo, uno con 201 y otro con 400
+      // "Card Token not found" — clásico doble dispatch.
+      if (ultimoTokenProcesadoRef.current === formData.token) {
+        // eslint-disable-next-line no-console
+        console.warn("[checkout] doble dispatch del mismo token ignorado en silencio");
+        return; // return (no throw) — el primer dispatch ya está procesando
+      }
+      ultimoTokenProcesadoRef.current = formData.token;
+
+      // Lock booleano secundario para reintentos con OTRA tarjeta mientras
+      // la primera está en vuelo (race más rara, pero defensa en profundidad).
       if (procesandoPagoRef.current) {
         // eslint-disable-next-line no-console
         console.warn("[checkout] segundo submit detectado, REJECT para que el Brick resetee");
-        // CRÍTICO: rejectar (no return). Según docs MP (discussion #137),
-        // el Brick resetea correctamente solo cuando se rechaza la promesa.
         throw new Error("Procesando un pago anterior. Esperá unos segundos.");
       }
       procesandoPagoRef.current = true;
@@ -500,6 +519,15 @@ export function CheckoutClient({ config }: { config: ConfigWeb }) {
         // rejected / cancelled — dejar al Brick mostrar el error inline
         // para que el cliente pueda reintentar con otra tarjeta sin salir.
         const sd = String(data.statusDetail || "");
+        // Log VISIBLE para diagnóstico — la cliente puede mandar screenshot
+        // de DevTools Console con esta línea y sabemos exactamente la causa.
+        // eslint-disable-next-line no-console
+        console.error("[checkout][MP RECHAZO]", {
+          status,
+          status_detail: sd,
+          paymentId,
+          preference_id: snap.preferenceId,
+        });
         const friendly =
           sd === "cc_rejected_insufficient_amount"
             ? "Saldo insuficiente. Probá con otra tarjeta."
