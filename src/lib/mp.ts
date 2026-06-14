@@ -10,6 +10,8 @@
  *   - MP_WEBHOOK_SECRET → para validar firma del webhook.
  */
 
+import { SITE_URL } from "@/lib/site";
+
 const MP_BASE = "https://api.mercadopago.com";
 
 export type MPPayment = {
@@ -152,6 +154,107 @@ export async function crearPreference(input: PreferenceInput): Promise<Preferenc
     return (await r.json()) as PreferenceResponse;
   } catch {
     return null;
+  }
+}
+
+/**
+ * Input que envía el Payment Brick en su callback `onSubmit`.
+ * Estos campos vienen del SDK MP — son los datos tokenizados de la tarjeta.
+ */
+export type ProcessPaymentInput = {
+  token: string;
+  payment_method_id: string;
+  issuer_id?: string;
+  installments?: number;
+  transaction_amount: number;
+  payer: {
+    email: string;
+    identification?: { type?: string; number?: string };
+  };
+  external_reference: string;
+  description?: string;
+};
+
+/**
+ * Crea un pago en MP usando la Payments API. Se usa para procesar tarjetas
+ * de crédito / débito directamente desde el Payment Brick (sin redirección
+ * a MP). El Brick tokeniza la tarjeta del lado cliente y nos pasa el token;
+ * nosotros lo intercambiamos por un cobro real acá.
+ *
+ * https://www.mercadopago.com.ar/developers/es/reference/payments/_payments/post
+ */
+/**
+ * Resultado de `procesarPago` — siempre devuelve detalle (sea OK o error)
+ * para que el endpoint pueda propagar al frontend.
+ */
+export type ProcesarPagoResult =
+  | { ok: true; payment: MPPayment }
+  | { ok: false; status: number; mpError: string; mpBody?: unknown };
+
+export async function procesarPago(input: ProcessPaymentInput): Promise<ProcesarPagoResult> {
+  const token = process.env.MP_ACCESS_TOKEN || "";
+  if (!token) {
+    return { ok: false, status: 503, mpError: "MP_ACCESS_TOKEN no configurado" };
+  }
+
+  const body = {
+    token: input.token,
+    payment_method_id: input.payment_method_id,
+    issuer_id: input.issuer_id,
+    installments: input.installments || 1,
+    transaction_amount: input.transaction_amount,
+    payer: input.payer,
+    external_reference: input.external_reference,
+    description: input.description || "Compra CasaAmor",
+    statement_descriptor: "CASAAMOR",
+    // CRÍTICO: MP exige notification_url absoluto HTTPS (HTTP 400 si es relativo
+    // o vacío). Usar SITE_URL del helper que tiene fallback inteligente —
+    // garantiza que NUNCA quede `/api/webhooks/mp` (relativo) que rompe el pago.
+    // https://www.mercadopago.com.ar/developers/es/docs/your-integrations/notifications/webhooks
+    notification_url: `${SITE_URL}/api/webhooks/mp`,
+    binary_mode: false,
+  };
+
+  try {
+    // Idempotency-Key obligatorio en POST /v1/payments para evitar cobros
+    // duplicados. CRÍTICO: usar valor ESTABLE (sin Date.now()). Si el SDK
+    // MP dispara onSubmit dos veces (bug conocido: GitHub discussion #137)
+    // o la red retransmite, las dos llegan con MISMO Idempotency-Key →
+    // MP devuelve la respuesta del primer cobro → cero duplicados, cero
+    // "Card Token not found" por token consumido en el segundo intento.
+    // Combinamos external_reference (único por preference) + prefijo del
+    // token (único por intento) → estable dentro del mismo dispatch pero
+    // distinto entre reintentos con tarjeta nueva.
+    const idempotencyKey = `${input.external_reference}-${input.token.slice(0, 16)}`;
+    const r = await fetch(`${MP_BASE}/v1/payments`, {
+      method: "POST",
+      headers: {
+        Authorization: `Bearer ${token}`,
+        "Content-Type": "application/json",
+        "X-Idempotency-Key": idempotencyKey,
+      },
+      body: JSON.stringify(body),
+      cache: "no-store",
+    });
+    if (!r.ok) {
+      const errText = await r.text().catch(() => "");
+      let parsed: unknown = errText;
+      try {
+        parsed = JSON.parse(errText);
+      } catch {
+        /* mantener texto plano */
+      }
+      console.error("[mp/procesarPago] error API", r.status, errText);
+      return { ok: false, status: r.status, mpError: errText.slice(0, 500), mpBody: parsed };
+    }
+    return { ok: true, payment: (await r.json()) as MPPayment };
+  } catch (err) {
+    console.error("[mp/procesarPago] excepción", err);
+    return {
+      ok: false,
+      status: 0,
+      mpError: err instanceof Error ? err.message : String(err),
+    };
   }
 }
 

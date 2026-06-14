@@ -2,8 +2,10 @@
 
 import Link from "next/link";
 import { useEffect, useRef, useState } from "react";
+import { ShoppingBag, Check } from "lucide-react";
 import type { Producto } from "@/lib/api";
 import { cloudinaryUrl } from "@/lib/img";
+import { useCart } from "@/contexts/CartContext";
 
 function fmtMonto(n: number): string {
   return "$" + Math.round(Number(n) || 0).toLocaleString("es-AR");
@@ -52,9 +54,17 @@ export function ProductoCard({
   const styleKey = resolveEstilo(estilo);
   const cardClasses = CARD_STYLES[styleKey];
   const enOferta = !!producto.oferta && Number(producto.descOfertaPct) > 0;
-  const precioConOferta = enOferta
+  const precioEftConOferta = enOferta
     ? Math.round(producto.precioEft * (1 - producto.descOfertaPct / 100))
     : producto.precioEft;
+  const precioTnConOferta = enOferta
+    ? Math.round(producto.precioTn * (1 - producto.descOfertaPct / 100))
+    : producto.precioTn;
+  const cuotaMonto = Math.round(precioTnConOferta / 3);
+
+  // Producto grupo con N>1 variantes: la card linkea al detalle, no permite
+  // quick-add (decidir variante desde el grid es alta fricción → Baymard).
+  const tieneVariantes = !!(producto.variantesCount && producto.variantesCount > 1);
 
   // Lista de fotos, con fallback a fotoUrl si fotos no llegó (backward-compat).
   const fotos = (producto.fotos && producto.fotos.length > 0)
@@ -84,6 +94,57 @@ export function ProductoCard({
       if (intervalRef.current) clearInterval(intervalRef.current);
     };
   }, []);
+
+  // Quick-add
+  const { agregar } = useCart();
+  const [agregado, setAgregado] = useState(false);
+  const agregadoTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+  useEffect(() => {
+    return () => {
+      if (agregadoTimerRef.current) clearTimeout(agregadoTimerRef.current);
+    };
+  }, []);
+
+  function onAgregar(e: React.MouseEvent) {
+    e.preventDefault();
+    e.stopPropagation();
+    if (tieneVariantes) return; // defensivo, el botón no debería estar visible
+    agregar({
+      sku: producto.sku,
+      nombre: producto.nombre,
+      variante: "",
+      precioUnit: precioEftConOferta,
+      precioUnitTn: precioTnConOferta,
+      fotoUrl: fotos[0],
+      slug: producto.sku,
+      // Logística para cotizador (B.2)
+      pesoKg: producto.pesoKg,
+      altoCm: producto.altoCm,
+      anchoCm: producto.anchoCm,
+      profundidadCm: producto.profundidadCm,
+    });
+    setAgregado(true);
+    if (agregadoTimerRef.current) clearTimeout(agregadoTimerRef.current);
+    agregadoTimerRef.current = setTimeout(() => setAgregado(false), 1500);
+  }
+
+  const mostrarQuickAdd = !tieneVariantes && producto.stock > 0;
+
+  // ESTRATEGIA DE ALINEACIÓN (v3 — cards compactas a altura natural):
+  // El intento anterior (v2 con h-full + mt-auto en el botón) generaba un
+  // espacio enorme entre el nombre y los precios cuando el nombre era corto.
+  // Patrón estándar TN/ML: cards con altura natural, sin estirar al row.
+  // Trade-off aceptado: si una card tiene nombre 2 líneas y otra 1, los
+  // botones quedan a alturas levemente distintas (~14-18px diff). Vale la
+  // pena el contenido compacto.
+  // - Card: block (sin flex column ni h-full).
+  // - Foto: aspect-square arriba.
+  // - Bloque info: flex column con gap-2 entre items.
+  //   · Nombre: altura natural (sin min-h).
+  //   · Chip variantes: SOLO se renderiza si aplica (no invisible).
+  //   · Bloque precios: min-h-[5rem] reservado para 4 líneas (tachado oferta
+  //     + EFT + TN + cuotas). Las 3 líneas de precio se muestran SIEMPRE.
+  //   · Botón: al final, sin mt-auto (sin estirar el espacio).
 
   return (
     <Link
@@ -130,36 +191,105 @@ export function ProductoCard({
           </div>
         )}
       </div>
+
+      {/* Bloque info — altura natural, sin estirar */}
       <div className="p-4 sm:p-3 flex flex-col gap-2">
-        <p className="text-[10px] uppercase tracking-[0.15em] text-ink/40">
-          {producto.proveedor}
-        </p>
-        <h3 className="font-heading text-burgundy text-sm sm:text-base line-clamp-2 leading-snug min-h-[2.5em]">
+        {/* Nombre: 1 sola línea con ellipsis si es muy largo. Esto asegura
+            alineación PERFECTA de los precios y botones entre cards vecinas.
+            Patrón boutique premium (Aesop / Glossier / Cosabella). */}
+        <h3
+          className="font-heading text-burgundy text-sm sm:text-base line-clamp-1 leading-snug"
+          title={producto.nombre}
+        >
           {producto.nombre}
         </h3>
-        {/* Chip de variantes (grupo con N > 1) */}
-        {producto.variantesCount && producto.variantesCount > 1 && (
-          <p className="text-xs text-rose font-medium">
-            {producto.variantesCount} {producto.varianteTipo === "talle" ? "talles" : producto.varianteTipo === "material" ? "materiales" : "colores"}
+
+        {/* Chip de variantes: solo renderizado cuando aplica */}
+        {tieneVariantes && (
+          <p className="text-xs text-rose font-medium leading-tight">
+            {producto.variantesCount}{" "}
+            {producto.varianteTipo === "talle"
+              ? "talles"
+              : producto.varianteTipo === "material"
+                ? "materiales"
+                : "colores"}
           </p>
         )}
+
+        {/* Bloque de precios: tachado oferta solo si aplica + 3 líneas fijas
+            para EFT, TN y cuotas (las 3 se muestran siempre — patrón TN). */}
         <div className="flex flex-col gap-0.5">
-          {enOferta && (
-            <span className="text-xs text-ink/40 line-through">
+          {/* Tachado del precio EFT original — solo si hay oferta */}
+          {enOferta && !tieneVariantes && (
+            <span className="text-xs line-through leading-tight text-ink/40">
               {fmtMonto(producto.precioEft)}
             </span>
           )}
-          {producto.precioEftMin != null && producto.precioEftMax != null && producto.precioEftMin !== producto.precioEftMax ? (
-            <span className="text-xl sm:text-lg font-semibold text-burgundy">
-              <span className="text-xs text-ink/60 font-normal">Desde </span>
-              {fmtMonto(producto.precioEftMin)}
-            </span>
+
+          {tieneVariantes ? (
+            /* "Desde $X" para grupos con variantes */
+            <div className="flex items-baseline gap-1.5 flex-wrap">
+              <span className="text-[15px] font-semibold text-burgundy">
+                <span className="text-xs text-ink/60 font-normal">Desde </span>
+                {fmtMonto(producto.precioEftMin ?? precioEftConOferta)}
+              </span>
+            </div>
           ) : (
-            <span className="text-xl sm:text-lg font-semibold text-burgundy">
-              {fmtMonto(precioConOferta)}
-            </span>
+            <>
+              {/* L1: precio EFT (anchor) + label */}
+              <div className="flex items-baseline gap-1.5 flex-wrap">
+                <span className="text-[15px] font-semibold text-burgundy">
+                  {fmtMonto(precioEftConOferta)}
+                </span>
+                <span className="text-[10px] uppercase tracking-wider text-ink/50">
+                  efectivo / transferencia
+                </span>
+              </div>
+              {/* L2: precio TN + label */}
+              <div className="flex items-baseline gap-1.5 flex-wrap">
+                <span className="text-[13px] font-medium text-ink">
+                  {fmtMonto(precioTnConOferta)}
+                </span>
+                <span className="text-[10px] uppercase tracking-wider text-ink/50">
+                  MP / tarjeta
+                </span>
+              </div>
+              {/* L3: cuotas — auxiliar */}
+              <p className="text-[11px] text-ink/60 leading-tight">
+                3 cuotas s/ interés de {fmtMonto(cuotaMonto)}
+              </p>
+            </>
           )}
         </div>
+
+        {/* Botón quick-add — texto responsivo:
+            - Mobile: "Agregar" (corto, entra en 1 línea con icono).
+            - Desktop: "Agregar al carrito" (completo, hay espacio). */}
+        {mostrarQuickAdd ? (
+          <button
+            type="button"
+            onClick={onAgregar}
+            aria-label={`Agregar ${producto.nombre} al carrito`}
+            className={`mt-1 w-full h-10 inline-flex items-center justify-center gap-1.5 rounded-lg font-semibold text-xs sm:text-sm whitespace-nowrap transition-colors ${
+              agregado
+                ? "bg-emerald-700 text-cream-light"
+                : "bg-burgundy hover:bg-burgundy-dark text-cream-light"
+            }`}
+          >
+            {agregado ? (
+              <>
+                <Check className="size-4" />
+                <span>Agregado</span>
+              </>
+            ) : (
+              <>
+                <ShoppingBag className="size-3.5 sm:size-4" />
+                <span className="sm:hidden">Agregar</span>
+                <span className="hidden sm:inline">Agregar al carrito</span>
+              </>
+            )}
+          </button>
+        ) : null}
       </div>
     </Link>
   );

@@ -130,8 +130,14 @@ export function ProductoDetalleClient({
       nombre: producto.nombre,
       variante: varianteActual?.valor || "",
       precioUnit: precioEftFinal,
+      precioUnitTn: precioTnFinal,
       fotoUrl: datos.fotos[0],
       slug: producto.sku,
+      // Logística para cotizador (B.2)
+      pesoKg: producto.pesoKg,
+      altoCm: producto.altoCm,
+      anchoCm: producto.anchoCm,
+      profundidadCm: producto.profundidadCm,
     });
     trackEvent("add_to_cart", {
       sku: skuParaMensaje,

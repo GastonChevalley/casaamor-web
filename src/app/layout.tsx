@@ -24,9 +24,14 @@ export async function generateMetadata(): Promise<Metadata> {
     description: siteDesc,
     // metadataBase desde env var (lib/site.ts) — switch automático cuando llegue dominio.
     metadataBase: new URL(SITE_URL),
-    alternates: {
-      canonical: "/",
-    },
+    // SEO fix (Search Console warning): Next 16 con metadataBase genera canonicals
+    // por ruta automáticos. Si dejábamos canonical: "/" acá, TODAS las páginas que
+    // no definen su propio canonical en generateMetadata (`/productos`, `/sobre`,
+    // `/contacto`, `/envios`, `?cat=X`) heredaban canonical apuntando a home →
+    // Google las trataba como duplicados → "Página alternativa con canónica
+    // adecuada" en Search Console → no las indexaba como URLs únicas.
+    // El detalle /productos/[sku] ya define su propio canonical correcto en
+    // generateMetadata, lo cual sigue funcionando.
     openGraph: {
       title: siteTitle,
       description: siteDesc,

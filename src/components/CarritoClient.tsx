@@ -18,7 +18,10 @@ import { cloudinaryUrl } from "@/lib/img";
  *   flash de "carrito vacío" cuando en realidad hay items guardados.
  */
 export function CarritoClient() {
-  const { items, total, cantidad, cambiarCantidad, eliminar, vaciar, hidratado } = useCart();
+  const { items, total, totalTn, cantidad, cambiarCantidad, eliminar, vaciar, hidratado } = useCart();
+  // Mostrar dual pricing solo si hay diferencia real (>= 1% para evitar mostrar
+  // "$10.850 vs $10.850" en items legacy sin precioUnitTn).
+  const muestraDual = totalTn > total * 1.01;
 
   if (!hidratado) {
     return (
@@ -72,7 +75,11 @@ export function CarritoClient() {
         <ul className="divide-y divide-burgundy/10 border border-burgundy/10 rounded-xl bg-cream/30">
           {items.map((item) => {
             const thumb = item.fotoUrl ? cloudinaryUrl(item.fotoUrl, "thumb") : null;
-            const subtotal = item.precioUnit * item.cantidad;
+            // Mostrar precio TN en el item si hay dual pricing (consistente con
+            // el subtotal del resumen). Sin dual, mostrar EFT (precioUnit clásico).
+            const precioMostrado =
+              muestraDual && item.precioUnitTn ? item.precioUnitTn : item.precioUnit;
+            const subtotal = precioMostrado * item.cantidad;
             const linkHref = item.slug ? `/productos/${encodeURIComponent(item.slug)}` : null;
             return (
               <li key={item.lineId} className="p-4 sm:p-5 flex gap-4 items-center">
@@ -157,7 +164,7 @@ export function CarritoClient() {
                       </div>
                       {item.cantidad > 1 && (
                         <div className="text-xs text-ink/50 mt-0.5">
-                          {fmtMonto(item.precioUnit)} c/u
+                          {fmtMonto(precioMostrado)} c/u
                         </div>
                       )}
                     </div>
@@ -175,7 +182,9 @@ export function CarritoClient() {
             <dl className="space-y-2 text-sm">
               <div className="flex justify-between">
                 <dt className="text-ink/70">Subtotal</dt>
-                <dd className="font-semibold text-ink">{fmtMonto(total)}</dd>
+                <dd className="font-semibold text-ink">
+                  {muestraDual ? fmtMonto(totalTn) : fmtMonto(total)}
+                </dd>
               </div>
               <div className="flex justify-between">
                 <dt className="text-ink/70">Envío</dt>
@@ -183,11 +192,38 @@ export function CarritoClient() {
               </div>
             </dl>
             <hr className="my-4 border-burgundy/10" />
-            <div className="flex justify-between items-baseline">
-              <span className="font-heading text-lg text-burgundy">Total</span>
-              <span className="font-heading text-2xl text-burgundy">{fmtMonto(total)}</span>
-            </div>
-            <p className="text-xs text-ink/50 mt-1">En efectivo o transferencia.</p>
+
+            {muestraDual ? (
+              <div className="space-y-3">
+                {/* Total online (TN) */}
+                <div>
+                  <div className="flex justify-between items-baseline">
+                    <span className="font-heading text-base text-burgundy">
+                      Total con tarjeta / MP
+                    </span>
+                    <span className="font-heading text-xl text-burgundy">{fmtMonto(totalTn)}</span>
+                  </div>
+                  <p className="text-xs text-ink/50">3 cuotas sin interés disponibles</p>
+                </div>
+                {/* Total efectivo / transferencia (EFT, destacado por ser el descuento) */}
+                <div className="rounded-lg bg-gold/10 border border-gold/30 p-3 -mx-1">
+                  <div className="flex justify-between items-baseline">
+                    <span className="font-heading text-base text-burgundy">
+                      Total efectivo / transferencia
+                    </span>
+                    <span className="font-heading text-xl text-burgundy">{fmtMonto(total)}</span>
+                  </div>
+                  <p className="text-xs text-ink/70 mt-0.5">
+                    20% OFF — coordinás por WhatsApp en el siguiente paso
+                  </p>
+                </div>
+              </div>
+            ) : (
+              <div className="flex justify-between items-baseline">
+                <span className="font-heading text-lg text-burgundy">Total</span>
+                <span className="font-heading text-2xl text-burgundy">{fmtMonto(total)}</span>
+              </div>
+            )}
 
             <Link
               href="/checkout"
@@ -209,10 +245,6 @@ export function CarritoClient() {
             </button>
           </div>
 
-          <p className="text-xs text-ink/50 text-center px-2">
-            Si preferís coordinar la compra por WhatsApp, podés volver al producto y usar el botón
-            “Consultar por WhatsApp”.
-          </p>
         </aside>
       </div>
     </div>
