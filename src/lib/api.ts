@@ -90,6 +90,8 @@ export type Producto = {
   // Card del catálogo: solo si es un grupo con N>1 variantes
   precioEftMin?: number;
   precioEftMax?: number;
+  precioTnMin?: number;
+  precioTnMax?: number;
   variantesCount?: number;
   // Productos sugeridos/relacionados — solo presente en detalle (_apiProducto_) — Addendum 72
   productosRelacionados?: string[];  // SKUs curados a mano (solo para admin write)

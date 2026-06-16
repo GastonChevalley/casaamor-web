@@ -1,9 +1,9 @@
 "use client";
 
 import Link from "next/link";
-import { useEffect, useRef, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import { ShoppingBag, Check } from "lucide-react";
-import type { Producto } from "@/lib/api";
+import type { Producto, Variante } from "@/lib/api";
 import { cloudinaryUrl } from "@/lib/img";
 import { useCart } from "@/contexts/CartContext";
 
@@ -53,28 +53,86 @@ export function ProductoCard({
 }) {
   const styleKey = resolveEstilo(estilo);
   const cardClasses = CARD_STYLES[styleKey];
-  const enOferta = !!producto.oferta && Number(producto.descOfertaPct) > 0;
+
+  // ── Variantes (estilo Tienda Nube: selector inline + precio dinámico) ──
+  // Un grupo con N>1 variantes muestra chips para elegir y el precio/foto/stock
+  // se actualizan según la variante activa, igual que el detalle del producto.
+  const variantes: Variante[] = producto.variantes ?? [];
+  const tieneVariantes = !!(producto.variantesCount && producto.variantesCount > 1) && variantes.length > 0;
+
+  // SKU de variante inicial: primera con stock, o la primera a secas.
+  const skuInicial = useMemo(() => {
+    if (!tieneVariantes) return producto.sku;
+    const conStock = variantes.find((v) => v.disponible);
+    return (conStock || variantes[0]).sku;
+  }, [tieneVariantes, variantes, producto.sku]);
+
+  const [varianteSku, setVarianteSku] = useState<string>(skuInicial);
+  useEffect(() => {
+    setVarianteSku(skuInicial);
+  }, [skuInicial]);
+
+  const varianteActual: Variante | null = useMemo(() => {
+    if (!tieneVariantes) return null;
+    return variantes.find((v) => v.sku === varianteSku) || variantes[0];
+  }, [tieneVariantes, variantes, varianteSku]);
+
+  // Datos efectivos según variante activa (o el producto si no hay variantes).
+  const datos = useMemo(() => {
+    if (varianteActual) {
+      return {
+        precioEft: varianteActual.precioEft,
+        precioTn: varianteActual.precioTn,
+        stock: varianteActual.stock,
+        oferta: varianteActual.oferta,
+        descOfertaPct: varianteActual.descOfertaPct,
+        fotos:
+          varianteActual.fotos && varianteActual.fotos.length > 0
+            ? varianteActual.fotos
+            : producto.fotos && producto.fotos.length > 0
+              ? producto.fotos
+              : producto.fotoUrl
+                ? [producto.fotoUrl]
+                : [],
+        valor: varianteActual.valor,
+      };
+    }
+    return {
+      precioEft: producto.precioEft,
+      precioTn: producto.precioTn,
+      stock: producto.stock,
+      oferta: producto.oferta,
+      descOfertaPct: producto.descOfertaPct,
+      fotos:
+        producto.fotos && producto.fotos.length > 0
+          ? producto.fotos
+          : producto.fotoUrl
+            ? [producto.fotoUrl]
+            : [],
+      valor: "",
+    };
+  }, [varianteActual, producto]);
+
+  const enOferta = !!datos.oferta && Number(datos.descOfertaPct) > 0;
   const precioEftConOferta = enOferta
-    ? Math.round(producto.precioEft * (1 - producto.descOfertaPct / 100))
-    : producto.precioEft;
+    ? Math.round(datos.precioEft * (1 - datos.descOfertaPct / 100))
+    : datos.precioEft;
   const precioTnConOferta = enOferta
-    ? Math.round(producto.precioTn * (1 - producto.descOfertaPct / 100))
-    : producto.precioTn;
+    ? Math.round(datos.precioTn * (1 - datos.descOfertaPct / 100))
+    : datos.precioTn;
   const cuotaMonto = Math.round(precioTnConOferta / 3);
 
-  // Producto grupo con N>1 variantes: la card linkea al detalle, no permite
-  // quick-add (decidir variante desde el grid es alta fricción → Baymard).
-  const tieneVariantes = !!(producto.variantesCount && producto.variantesCount > 1);
-
-  // Lista de fotos, con fallback a fotoUrl si fotos no llegó (backward-compat).
-  const fotos = (producto.fotos && producto.fotos.length > 0)
-    ? producto.fotos
-    : (producto.fotoUrl ? [producto.fotoUrl] : []);
+  const fotos = datos.fotos;
 
   // Hover cycle: cuando hay >= 2 fotos, ciclar entre ellas cada 1.2s mientras
   // se hace hover. Al sacar el mouse, vuelve a la primera con fade.
   const [idx, setIdx] = useState(0);
   const intervalRef = useRef<ReturnType<typeof setInterval> | null>(null);
+
+  // Reset del índice de foto al cambiar de variante (las fotos cambian).
+  useEffect(() => {
+    setIdx(0);
+  }, [varianteSku]);
 
   function onEnter() {
     if (fotos.length < 2) return;
@@ -108,11 +166,11 @@ export function ProductoCard({
   function onAgregar(e: React.MouseEvent) {
     e.preventDefault();
     e.stopPropagation();
-    if (tieneVariantes) return; // defensivo, el botón no debería estar visible
+    if (datos.stock <= 0) return;
     agregar({
-      sku: producto.sku,
+      sku: varianteActual?.sku || producto.sku,
       nombre: producto.nombre,
-      variante: "",
+      variante: varianteActual?.valor || "",
       precioUnit: precioEftConOferta,
       precioUnitTn: precioTnConOferta,
       fotoUrl: fotos[0],
@@ -128,23 +186,15 @@ export function ProductoCard({
     agregadoTimerRef.current = setTimeout(() => setAgregado(false), 1500);
   }
 
-  const mostrarQuickAdd = !tieneVariantes && producto.stock > 0;
+  function onSeleccionarVariante(e: React.MouseEvent, sku: string) {
+    // Los chips viven dentro del <Link> de la card → frenar la navegación.
+    e.preventDefault();
+    e.stopPropagation();
+    setVarianteSku(sku);
+  }
 
-  // ESTRATEGIA DE ALINEACIÓN (v3 — cards compactas a altura natural):
-  // El intento anterior (v2 con h-full + mt-auto en el botón) generaba un
-  // espacio enorme entre el nombre y los precios cuando el nombre era corto.
-  // Patrón estándar TN/ML: cards con altura natural, sin estirar al row.
-  // Trade-off aceptado: si una card tiene nombre 2 líneas y otra 1, los
-  // botones quedan a alturas levemente distintas (~14-18px diff). Vale la
-  // pena el contenido compacto.
-  // - Card: block (sin flex column ni h-full).
-  // - Foto: aspect-square arriba.
-  // - Bloque info: flex column con gap-2 entre items.
-  //   · Nombre: altura natural (sin min-h).
-  //   · Chip variantes: SOLO se renderiza si aplica (no invisible).
-  //   · Bloque precios: min-h-[5rem] reservado para 4 líneas (tachado oferta
-  //     + EFT + TN + cuotas). Las 3 líneas de precio se muestran SIEMPRE.
-  //   · Botón: al final, sin mt-auto (sin estirar el espacio).
+  const hayStock = datos.stock > 0;
+  const mostrarQuickAdd = hayStock;
 
   return (
     <Link
@@ -174,7 +224,12 @@ export function ProductoCard({
         )}
         {enOferta && (
           <span className="absolute top-3 left-3 bg-gold text-burgundy text-[11px] font-semibold px-2 py-1 rounded z-10">
-            −{producto.descOfertaPct}%
+            −{datos.descOfertaPct}%
+          </span>
+        )}
+        {!hayStock && (
+          <span className="absolute top-3 right-3 bg-ink/80 text-cream-light text-[10px] font-semibold px-2 py-1 rounded z-10">
+            SIN STOCK
           </span>
         )}
         {/* Indicador discreto de cantidad de fotos */}
@@ -194,9 +249,7 @@ export function ProductoCard({
 
       {/* Bloque info — altura natural, sin estirar */}
       <div className="p-4 sm:p-3 flex flex-col gap-2">
-        {/* Nombre: 1 sola línea con ellipsis si es muy largo. Esto asegura
-            alineación PERFECTA de los precios y botones entre cards vecinas.
-            Patrón boutique premium (Aesop / Glossier / Cosabella). */}
+        {/* Nombre: 1 sola línea con ellipsis si es muy largo. */}
         <h3
           className="font-heading text-burgundy text-sm sm:text-base line-clamp-1 leading-snug"
           title={producto.nombre}
@@ -204,72 +257,74 @@ export function ProductoCard({
           {producto.nombre}
         </h3>
 
-        {/* Chip de variantes: solo renderizado cuando aplica */}
-        {tieneVariantes && (
-          <p className="text-xs text-rose font-medium leading-tight">
-            {producto.variantesCount}{" "}
-            {producto.varianteTipo === "talle"
-              ? "talles"
-              : producto.varianteTipo === "material"
-                ? "materiales"
-                : "colores"}
-          </p>
-        )}
-
-        {/* Bloque de precios: tachado oferta solo si aplica + 3 líneas fijas
-            para EFT, TN y cuotas (las 3 se muestran siempre — patrón TN). */}
+        {/* Bloque de precios: SIEMPRE las 3 líneas (EFT, TN, cuotas), tanto
+            para productos simples como para la variante activa de un grupo.
+            El precio se actualiza al elegir variante. */}
         <div className="flex flex-col gap-0.5">
-          {/* Tachado del precio EFT original — solo si hay oferta */}
-          {enOferta && !tieneVariantes && (
+          {enOferta && (
             <span className="text-xs line-through leading-tight text-ink/40">
-              {fmtMonto(producto.precioEft)}
+              {fmtMonto(datos.precioEft)}
             </span>
           )}
-
-          {tieneVariantes ? (
-            /* "Desde $X" para grupos con variantes */
-            <div className="flex items-baseline gap-1.5 flex-wrap">
-              <span className="text-[15px] font-semibold text-burgundy">
-                <span className="text-xs text-ink/60 font-normal">Desde </span>
-                {fmtMonto(producto.precioEftMin ?? precioEftConOferta)}
-              </span>
-            </div>
-          ) : (
-            <>
-              {/* L1: precio EFT (anchor) + label */}
-              <div className="flex items-baseline gap-1.5 flex-wrap">
-                <span className="text-[15px] font-semibold text-burgundy">
-                  {fmtMonto(precioEftConOferta)}
-                </span>
-                <span className="text-[10px] uppercase tracking-wider text-ink/50">
-                  efectivo / transferencia
-                </span>
-              </div>
-              {/* L2: precio TN + label */}
-              <div className="flex items-baseline gap-1.5 flex-wrap">
-                <span className="text-[13px] font-medium text-ink">
-                  {fmtMonto(precioTnConOferta)}
-                </span>
-                <span className="text-[10px] uppercase tracking-wider text-ink/50">
-                  MP / tarjeta
-                </span>
-              </div>
-              {/* L3: cuotas — auxiliar */}
-              <p className="text-[11px] text-ink/60 leading-tight">
-                3 cuotas s/ interés de {fmtMonto(cuotaMonto)}
-              </p>
-            </>
-          )}
+          {/* L1: precio EFT (anchor) + label */}
+          <div className="flex items-baseline gap-1.5 flex-wrap">
+            <span className="text-[15px] font-semibold text-burgundy">
+              {fmtMonto(precioEftConOferta)}
+            </span>
+            <span className="text-[10px] uppercase tracking-wider text-ink/50">
+              efectivo / transferencia
+            </span>
+          </div>
+          {/* L2: precio TN + label */}
+          <div className="flex items-baseline gap-1.5 flex-wrap">
+            <span className="text-[13px] font-medium text-ink">
+              {fmtMonto(precioTnConOferta)}
+            </span>
+            <span className="text-[10px] uppercase tracking-wider text-ink/50">
+              MP / tarjeta
+            </span>
+          </div>
+          {/* L3: cuotas — auxiliar */}
+          <p className="text-[11px] text-ink/60 leading-tight">
+            3 cuotas s/ interés de {fmtMonto(cuotaMonto)}
+          </p>
         </div>
 
-        {/* Botón quick-add — texto responsivo:
-            - Mobile: "Agregar" (corto, entra en 1 línea con icono).
-            - Desktop: "Agregar al carrito" (completo, hay espacio). */}
+        {/* Selector de variantes inline (chips). Solo en grupos. */}
+        {tieneVariantes && (
+          <div className="flex flex-wrap gap-1.5">
+            {variantes.map((v) => {
+              const activa = v.sku === varianteSku;
+              const sinStock = !v.disponible;
+              return (
+                <button
+                  key={v.sku}
+                  type="button"
+                  onClick={(e) => !sinStock && onSeleccionarVariante(e, v.sku)}
+                  disabled={sinStock}
+                  aria-pressed={activa}
+                  title={sinStock ? `${v.valor} (sin stock)` : v.valor}
+                  className={`px-2 py-0.5 rounded-full text-[11px] border transition-colors ${
+                    activa
+                      ? "bg-burgundy text-cream-light border-burgundy"
+                      : sinStock
+                        ? "bg-white text-ink/30 border-ink/10 line-through cursor-not-allowed"
+                        : "bg-white text-burgundy border-burgundy/30 hover:border-burgundy"
+                  }`}
+                >
+                  {v.valor}
+                </button>
+              );
+            })}
+          </div>
+        )}
+
+        {/* Botón quick-add — agrega la variante activa (o el producto simple). */}
         {mostrarQuickAdd ? (
           <button
             type="button"
             onClick={onAgregar}
-            aria-label={`Agregar ${producto.nombre} al carrito`}
+            aria-label={`Agregar ${producto.nombre}${datos.valor ? ` ${datos.valor}` : ""} al carrito`}
             className={`mt-1 w-full h-10 inline-flex items-center justify-center gap-1.5 rounded-lg font-semibold text-xs sm:text-sm whitespace-nowrap transition-colors ${
               agregado
                 ? "bg-emerald-700 text-cream-light"
