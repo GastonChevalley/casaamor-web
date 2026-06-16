@@ -173,6 +173,19 @@ export type ProcessPaymentInput = {
   };
   external_reference: string;
   description?: string;
+  /**
+   * Items del carrito. CRÍTICO: si NO se envían, MP no guarda detalle del
+   * pago → `pago.additional_info.items` viene vacío en el webhook → Apps
+   * Script no puede matchear SKUs → fila en Ventas queda sin sku + stock
+   * NO se decrementa. Cada item necesita `id=sku` para que el webhook lo
+   * encuentre en hoja Productos.
+   */
+  items?: Array<{
+    id: string;
+    title: string;
+    quantity: number;
+    unit_price: number;
+  }>;
 };
 
 /**
@@ -197,7 +210,7 @@ export async function procesarPago(input: ProcessPaymentInput): Promise<Procesar
     return { ok: false, status: 503, mpError: "MP_ACCESS_TOKEN no configurado" };
   }
 
-  const body = {
+  const body: Record<string, unknown> = {
     token: input.token,
     payment_method_id: input.payment_method_id,
     issuer_id: input.issuer_id,
@@ -214,6 +227,15 @@ export async function procesarPago(input: ProcessPaymentInput): Promise<Procesar
     notification_url: `${SITE_URL}/api/webhooks/mp`,
     binary_mode: false,
   };
+  // CRÍTICO: pasar items en additional_info → MP los retiene en el pago →
+  // webhook recibe pago.additional_info.items con id=SKU → Apps Script matchea
+  // contra Productos y decrementa stock. Sin esto, la venta entra como
+  // "Compra MP (sin detalle)" y el stock no baja.
+  if (input.items && input.items.length > 0) {
+    body.additional_info = {
+      items: input.items,
+    };
+  }
 
   try {
     // Idempotency-Key obligatorio en POST /v1/payments para evitar cobros

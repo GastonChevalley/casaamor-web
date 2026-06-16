@@ -75,20 +75,43 @@ export async function POST(req: NextRequest) {
     return ok();
   }
 
-  // Consultar detalle del pago
-  const pago = await obtenerPayment(dataId);
+  // Consultar detalle del pago con POLLING.
+  // CRÍTICO (Bug D): MP a veces envía el webhook `payment.created` ANTES de
+  // que el cobro termine de procesarse en su backend. En ese momento el
+  // status puede venir `in_process` o `pending`, y como MP NO siempre envía
+  // un `payment.updated` posterior (depende de la suscripción), si cortamos
+  // acá perdemos la venta para siempre.
+  //
+  // Fix: polling con backoff (1s, 2s, 5s) hasta que pago.status sea final
+  // O hasta agotar reintentos. Después igual derivamos a Apps Script para
+  // que loggee y procese según corresponda (idempotente).
+  const estadosFinales = new Set(["approved", "rejected", "refunded", "cancelled", "charged_back"]);
+  const BACKOFF_MS = [0, 1500, 3000, 5000]; // 4 intentos: inmediato + 3 backoffs
+  let pago = null;
+  let intento = 0;
+  for (const wait of BACKOFF_MS) {
+    if (wait > 0) await new Promise((r) => setTimeout(r, wait));
+    intento += 1;
+    pago = await obtenerPayment(dataId);
+    if (!pago) {
+      console.error("[mp/webhook] no se pudo obtener detalle del pago", { dataId, intento });
+      continue;
+    }
+    if (estadosFinales.has(pago.status)) {
+      break; // status final → procesar
+    }
+    console.warn("[mp/webhook] status no final, reintentando", {
+      dataId,
+      intento,
+      status: pago.status,
+    });
+  }
   if (!pago) {
-    console.error("[mp/webhook] no se pudo obtener detalle del pago", dataId);
     return NextResponse.json({ ok: false, error: "no_payment_detail" }, { status: 502 });
   }
-
-  // Solo derivar a Apps Script si el pago está en un estado finalizado
-  // (approved / rejected / refunded / cancelled). Estados intermedios
-  // (in_process, pending) se ignoran — Apps Script registra cuando se aprueba.
-  const estadosFinales = new Set(["approved", "rejected", "refunded", "cancelled", "charged_back"]);
-  if (!estadosFinales.has(pago.status)) {
-    return ok();
-  }
+  // Si después de los reintentos sigue no-final → igual derivar a Apps Script
+  // para registrar el evento en _LogsMP (auditoría). El Apps Script no inserta
+  // fila en Ventas si status !== 'approved', solo loggea.
 
   // Derivar a Apps Script para registrar la venta
   const appsScriptUrl = process.env.NEXT_PUBLIC_APP_SCRIPT_URL || "";

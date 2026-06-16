@@ -124,12 +124,23 @@ export function CheckoutClient({ config }: { config: ConfigWeb }) {
     payerEmail: string;
     totalConEnvio: number;
     itemsLength: number;
+    // Items del carrito en formato simple (sku + nombre + cantidad + precio
+    // + variante opcional). CRÍTICO para que Apps Script matchee SKU y
+    // decremente stock en hoja Productos via additional_info.items de MP.
+    cartItems: Array<{
+      sku: string;
+      nombre: string;
+      cantidad: number;
+      precioUnit: number;
+      variante?: string;
+    }>;
   }>({
     preferenceId: null,
     externalRefSnapshot: null,
     payerEmail: "",
     totalConEnvio: 0,
     itemsLength: 0,
+    cartItems: [],
   });
   // Key para force-remount del Brick como fallback si algo se atasca.
   // Bumpeamos en onBrickError (workaround documentado por MP: discussion #137).
@@ -302,6 +313,14 @@ export function CheckoutClient({ config }: { config: ConfigWeb }) {
       // cobrar un monto distinto al que vio el Brick → inconsistencia.
       totalConEnvio: amountSnapshot ?? totalConEnvio,
       itemsLength: items.length,
+      // Snapshot del carrito para que el webhook tenga el detalle de SKUs.
+      cartItems: items.map((it) => ({
+        sku: it.sku,
+        nombre: it.nombre,
+        cantidad: it.cantidad,
+        precioUnit: it.precioUnit,
+        variante: it.variante,
+      })),
     };
   });
 
@@ -431,6 +450,11 @@ export function CheckoutClient({ config }: { config: ConfigWeb }) {
             },
             externalReference: snap.externalRefSnapshot,
             description: `Compra CasaAmor (${snap.itemsLength} ${snap.itemsLength === 1 ? "ítem" : "ítems"})`,
+            // CRÍTICO: items del carrito → MP guarda additional_info.items →
+            // webhook recibe SKU + nombre + cantidad → Apps Script decrementa
+            // stock en Productos. Sin esto, la venta entra sin detalle y el
+            // stock no se descuenta.
+            items: snap.cartItems,
           }),
         });
       } catch (err) {

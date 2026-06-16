@@ -45,6 +45,19 @@ type BodyIn = {
   };
   externalReference?: string;
   description?: string;
+  /**
+   * Items del carrito. Si se omiten, MP no guarda detalle del pago →
+   * el webhook recibe pago.additional_info.items vacío → Apps Script no
+   * puede matchear SKU contra Productos → fila sin sku + stock NO decrementa.
+   * Cada item necesita id=SKU para que el matcheo funcione.
+   */
+  items?: Array<{
+    sku?: string;
+    nombre?: string;
+    variante?: string;
+    cantidad?: number;
+    precioUnit?: number;
+  }>;
 };
 
 export async function POST(req: NextRequest) {
@@ -95,6 +108,27 @@ export async function POST(req: NextRequest) {
     );
   }
 
+  // Mapear items del carrito al formato additional_info.items que espera MP.
+  // CRÍTICO para que el webhook pueda matchear SKU contra Productos.
+  const items = Array.isArray(body.items)
+    ? body.items
+        .filter(
+          (it): it is { sku: string; nombre: string; cantidad: number; precioUnit: number; variante?: string } =>
+            !!it.sku &&
+            !!it.nombre &&
+            typeof it.cantidad === "number" &&
+            it.cantidad > 0 &&
+            typeof it.precioUnit === "number" &&
+            it.precioUnit > 0,
+        )
+        .map((it) => ({
+          id: it.sku,
+          title: it.variante ? `${it.nombre} (${it.variante})` : it.nombre,
+          quantity: Math.floor(it.cantidad),
+          unit_price: Math.round(it.precioUnit),
+        }))
+    : undefined;
+
   const input: ProcessPaymentInput = {
     token: body.token,
     payment_method_id: body.payment_method_id,
@@ -107,6 +141,7 @@ export async function POST(req: NextRequest) {
     },
     external_reference: body.externalReference,
     description: body.description,
+    items,
   };
 
   const resultado = await procesarPago(input);
