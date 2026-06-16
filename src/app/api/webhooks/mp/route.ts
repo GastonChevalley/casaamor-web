@@ -121,20 +121,60 @@ export async function POST(req: NextRequest) {
     return NextResponse.json({ ok: false, error: "backend_no_configurado" }, { status: 500 });
   }
 
+  // CRÍTICO (Addendum 88): mandar a Apps Script por GET con el pago en el
+  // query param `payload`, NO por POST con body. Apps Script responde con un
+  // redirect 302 interno; Node fetch, al seguirlo, convierte el POST en GET y
+  // DESCARTA el body → el webhook llegaba sin el pago y nunca registraba la
+  // venta. El query param sobrevive el redirect. Mandamos un pago "slim" con
+  // solo los campos que el backend necesita, para no exceder el largo de URL.
+  const pagoSlim = {
+    id: pago.id,
+    status: pago.status,
+    status_detail: pago.status_detail,
+    transaction_amount: pago.transaction_amount,
+    net_amount: pago.net_amount,
+    fee_details: (pago.fee_details || []).map((f) => ({ amount: f.amount })),
+    payment_type_id: pago.payment_type_id,
+    payment_method_id: pago.payment_method_id,
+    installments: pago.installments,
+    date_approved: pago.date_approved,
+    external_reference: pago.external_reference,
+    payer: pago.payer
+      ? {
+          email: pago.payer.email,
+          first_name: pago.payer.first_name,
+          last_name: pago.payer.last_name,
+        }
+      : undefined,
+    additional_info: {
+      items: (pago.additional_info?.items || []).map((it) => ({
+        id: it.id,
+        title: it.title,
+        quantity: it.quantity,
+        unit_price: it.unit_price,
+      })),
+    },
+  };
+  const payloadEnc = encodeURIComponent(JSON.stringify(pagoSlim));
+  const tokenEnc = encodeURIComponent(apiToken);
   try {
-    const r = await fetch(`${appsScriptUrl}?api=mp_webhook`, {
-      method: "POST",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({
-        token: apiToken,
-        payment: pago,
-      }),
-      redirect: "follow",
-      cache: "no-store",
-    });
+    const r = await fetch(
+      `${appsScriptUrl}?api=mp_webhook&token=${tokenEnc}&payload=${payloadEnc}`,
+      {
+        method: "GET",
+        redirect: "follow",
+        cache: "no-store",
+      },
+    );
     if (!r.ok) {
       console.error("[mp/webhook] Apps Script respondió", r.status);
       return NextResponse.json({ ok: false, error: "apps_script_error" }, { status: 502 });
+    }
+    // Leer la respuesta para detectar fallos lógicos (token/registro).
+    const txt = await r.text().catch(() => "");
+    if (txt.includes("unauthorized")) {
+      console.error("[mp/webhook] Apps Script rechazó el token");
+      return NextResponse.json({ ok: false, error: "apps_script_unauthorized" }, { status: 502 });
     }
   } catch (err) {
     console.error("[mp/webhook] Apps Script fetch falló", err);
