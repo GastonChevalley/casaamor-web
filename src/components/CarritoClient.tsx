@@ -75,11 +75,13 @@ export function CarritoClient() {
         <ul className="divide-y divide-burgundy/10 border border-burgundy/10 rounded-xl bg-cream/30">
           {items.map((item) => {
             const thumb = item.fotoUrl ? cloudinaryUrl(item.fotoUrl, "thumb") : null;
-            // Mostrar precio TN en el item si hay dual pricing (consistente con
-            // el subtotal del resumen). Sin dual, mostrar EFT (precioUnit clásico).
-            const precioMostrado =
-              muestraDual && item.precioUnitTn ? item.precioUnitTn : item.precioUnit;
-            const subtotal = precioMostrado * item.cantidad;
+            // El precio PRINCIPAL del item es el de efectivo/transferencia (precioUnit),
+            // coherente con card y detalle (anchoring: destacar el más bajo). El de
+            // tarjeta/MP se muestra como línea secundaria. Mismo eje en todo el recorrido.
+            const precioEft = item.precioUnit;
+            const precioTn = item.precioUnitTn || item.precioUnit;
+            const subtotalEft = precioEft * item.cantidad;
+            const subtotalTn = precioTn * item.cantidad;
             const linkHref = item.slug ? `/productos/${encodeURIComponent(item.slug)}` : null;
             return (
               <li key={item.lineId} className="p-4 sm:p-5 flex gap-4 items-center">
@@ -157,14 +159,19 @@ export function CarritoClient() {
                       </button>
                     </div>
 
-                    {/* Precio */}
+                    {/* Precio — efectivo principal, tarjeta secundario */}
                     <div className="text-right">
                       <div className="text-lg sm:text-xl font-semibold text-burgundy">
-                        {fmtMonto(subtotal)}
+                        {fmtMonto(subtotalEft)}
                       </div>
+                      {muestraDual && (
+                        <div className="text-xs text-ink/55 mt-0.5">
+                          o {fmtMonto(subtotalTn)} con tarjeta / MP
+                        </div>
+                      )}
                       {item.cantidad > 1 && (
                         <div className="text-xs text-ink/50 mt-0.5">
-                          {fmtMonto(precioMostrado)} c/u
+                          {fmtMonto(precioEft)} c/u
                         </div>
                       )}
                     </div>
@@ -181,12 +188,6 @@ export function CarritoClient() {
             <h2 className="font-heading text-xl text-burgundy mb-4">Resumen</h2>
             <dl className="space-y-2 text-sm">
               <div className="flex justify-between">
-                <dt className="text-ink/70">Subtotal</dt>
-                <dd className="font-semibold text-ink">
-                  {muestraDual ? fmtMonto(totalTn) : fmtMonto(total)}
-                </dd>
-              </div>
-              <div className="flex justify-between">
                 <dt className="text-ink/70">Envío</dt>
                 <dd className="text-ink/60 italic">se calcula al pagar</dd>
               </div>
@@ -194,27 +195,34 @@ export function CarritoClient() {
             <hr className="my-4 border-burgundy/10" />
 
             {muestraDual ? (
+              // "Elegí cómo pagar" — dos formas de pagar lo mismo, SIN porcentajes.
+              // El medio de pago no es "otro descuento" (eso confundía con las ofertas):
+              // son dos montos finales y el cliente elige. Si el producto está en oferta,
+              // ambos montos ya la incluyen, así que no hay nada que parezca apilarse.
               <div className="space-y-3">
-                {/* Total online (TN) */}
-                <div>
-                  <div className="flex justify-between items-baseline">
-                    <span className="font-heading text-base text-burgundy">
-                      Total con tarjeta / MP
-                    </span>
-                    <span className="font-heading text-xl text-burgundy">{fmtMonto(totalTn)}</span>
-                  </div>
-                  <p className="text-xs text-ink/50">3 cuotas sin interés disponibles</p>
-                </div>
-                {/* Total efectivo / transferencia (EFT, destacado por ser el descuento) */}
+                <p className="font-heading text-base text-burgundy">Elegí cómo pagar</p>
+                {/* Transferencia / efectivo — destacado (es el más conveniente) */}
                 <div className="rounded-lg bg-gold/10 border border-gold/30 p-3 -mx-1">
                   <div className="flex justify-between items-baseline">
-                    <span className="font-heading text-base text-burgundy">
-                      Total efectivo / transferencia
+                    <span className="font-heading text-sm text-burgundy">
+                      Transferencia o efectivo
                     </span>
                     <span className="font-heading text-xl text-burgundy">{fmtMonto(total)}</span>
                   </div>
                   <p className="text-xs text-ink/70 mt-0.5">
-                    20% OFF — coordinás por WhatsApp en el siguiente paso
+                    ✓ Pagás menos · coordinás por WhatsApp en el siguiente paso
+                  </p>
+                </div>
+                {/* Tarjeta / MP — lo que se cobra en el checkout online */}
+                <div>
+                  <div className="flex justify-between items-baseline">
+                    <span className="font-heading text-sm text-burgundy">
+                      Tarjeta / Mercado Pago
+                    </span>
+                    <span className="font-heading text-lg text-ink">{fmtMonto(totalTn)}</span>
+                  </div>
+                  <p className="text-xs text-ink/50 mt-0.5">
+                    3 cuotas sin interés · pagás online en el siguiente paso
                   </p>
                 </div>
               </div>
