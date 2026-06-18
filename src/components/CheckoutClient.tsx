@@ -647,7 +647,7 @@ export function CheckoutClient({ config }: { config: ConfigWeb }) {
         `*Productos:*`,
         ...lineas,
         "",
-        `*Total efectivo / transferencia (20% OFF):* $${Math.round(total).toLocaleString("es-AR")}`,
+        `*Total por transferencia / efectivo:* $${Math.round(total).toLocaleString("es-AR")}`,
         `*Entrega:* ${envioTxt}`,
         form.notas ? `*Notas:* ${form.notas}` : null,
       ]
@@ -955,7 +955,7 @@ export function CheckoutClient({ config }: { config: ConfigWeb }) {
                     </div>
                     <div className="text-right shrink-0">
                       <div className="font-semibold text-burgundy">{fmtMonto(total)}</div>
-                      <div className="text-xs text-emerald-700 font-medium">20% OFF</div>
+                      <div className="text-xs text-emerald-700 font-medium">✓ pagás menos</div>
                     </div>
                   </div>
                 </button>
@@ -1065,27 +1065,35 @@ export function CheckoutClient({ config }: { config: ConfigWeb }) {
             <h2 className="font-heading text-xl text-burgundy mb-4">Resumen</h2>
 
             <ul className="space-y-3 mb-4 max-h-56 overflow-y-auto pr-1">
-              {items.map((it) => (
-                <li key={it.lineId} className="flex gap-3 text-sm">
-                  <div className="shrink-0 w-12 h-12 rounded bg-cream-light flex items-center justify-center overflow-hidden">
-                    {it.fotoUrl ? (
-                      // eslint-disable-next-line @next/next/no-img-element
-                      <img src={it.fotoUrl} alt="" className="w-full h-full object-cover" />
-                    ) : (
-                      <ShoppingBag size={16} className="text-burgundy/30" />
-                    )}
-                  </div>
-                  <div className="flex-1 min-w-0">
-                    <div className="text-burgundy line-clamp-1 leading-tight">{it.nombre}</div>
-                    <div className="text-ink/60 text-xs">
-                      {it.cantidad} × {fmtMonto(it.precioUnit)}
+              {items.map((it) => {
+                // El precio del item se adapta al método elegido, igual que el
+                // subtotal y el total. Si es online (mp) → precio tarjeta; si es
+                // transferencia/efectivo (whatsapp) → precio efectivo. Así el
+                // resumen SIEMPRE cuadra (item × cantidad = subtotal = total).
+                const precioItem =
+                  form.metodoPago === "mp" ? it.precioUnitTn || it.precioUnit : it.precioUnit;
+                return (
+                  <li key={it.lineId} className="flex gap-3 text-sm">
+                    <div className="shrink-0 w-12 h-12 rounded bg-cream-light flex items-center justify-center overflow-hidden">
+                      {it.fotoUrl ? (
+                        // eslint-disable-next-line @next/next/no-img-element
+                        <img src={it.fotoUrl} alt="" className="w-full h-full object-cover" />
+                      ) : (
+                        <ShoppingBag size={16} className="text-burgundy/30" />
+                      )}
                     </div>
-                  </div>
-                  <div className="text-burgundy font-semibold whitespace-nowrap">
-                    {fmtMonto(it.precioUnit * it.cantidad)}
-                  </div>
-                </li>
-              ))}
+                    <div className="flex-1 min-w-0">
+                      <div className="text-burgundy line-clamp-1 leading-tight">{it.nombre}</div>
+                      <div className="text-ink/60 text-xs">
+                        {it.cantidad} × {fmtMonto(precioItem)}
+                      </div>
+                    </div>
+                    <div className="text-burgundy font-semibold whitespace-nowrap">
+                      {fmtMonto(precioItem * it.cantidad)}
+                    </div>
+                  </li>
+                );
+              })}
             </ul>
 
             <hr className="my-4 border-burgundy/10" />
@@ -1109,10 +1117,21 @@ export function CheckoutClient({ config }: { config: ConfigWeb }) {
                         : "Ingresá CP"}
                 </dd>
               </div>
-              {muestraDualPago && form.metodoPago === "whatsapp" && (
-                <div className="flex justify-between text-emerald-700">
-                  <dt>Descuento transferencia</dt>
-                  <dd>−{fmtMonto(totalTn - total)}</dd>
+              {/* Nota del método elegido (sin línea de "descuento" para no
+                  descuadrar: el subtotal ya está en el precio del método, y la
+                  comparación de precios vive en el selector de arriba). */}
+              {muestraDualPago && (
+                <div className="flex justify-between text-ink/55 text-xs pt-0.5">
+                  <dt>
+                    {form.metodoPago === "mp"
+                      ? "Pagás online con tarjeta / MP"
+                      : "Pagás por transferencia o efectivo"}
+                  </dt>
+                  <dd>
+                    {form.metodoPago === "mp"
+                      ? `o ${fmtMonto(total)} por transferencia`
+                      : `✓ pagás menos`}
+                  </dd>
                 </div>
               )}
             </dl>
