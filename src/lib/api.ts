@@ -285,8 +285,12 @@ const PAGES_SUMMARY_FALLBACK: PageSummary[] = Object.values(PAGES_FALLBACK).map(
 }));
 
 /**
- * Fetcher con cache ISR de 30s (acortado para iteración durante dev).
- * Para producción subir a 300s o agregar invalidate manual con revalidatePath.
+ * Fetcher con cache ISR. TTL env-aware (ver bloque del cache buster abajo):
+ *   - PRODUCCIÓN: 300s (5 min). TTL largo para NO quemar la cuota de ISR Writes
+ *     de Vercel (200k/mes en Hobby). La propagación instantánea de los cambios de
+ *     la dueña la da el webhook /api/revalidate vía revalidateTag, no el TTL.
+ *   - DEV (localhost): 3s, porque el webhook no llega a localhost y el dev no
+ *     consume cuota de Vercel.
  *
  * Devuelve undefined si la API no está configurada → llamadores caen a fallback.
  * Devuelve null si la API respondió pero hubo error (HTTP no-OK, parse fail).
@@ -299,24 +303,25 @@ async function fetchApi<T>(api: string, params: Record<string, string> = {}): Pr
   url.searchParams.set("token", API_TOKEN);
   Object.entries(params).forEach(([k, v]) => url.searchParams.set(k, v));
 
-  // Cache buster por ventana de 3 segundos. Garantiza propagación
-  // de cambios de Sheet → Web en MAX 3 segundos sin depender del webhook
-  // (que solo funciona en producción, no en localhost).
-  //
-  // Funciona en ambos lados:
-  //   - Frontend (Next.js Data Cache): la URL cambia cada 3s → cache miss.
-  //   - Backend (Google edge cache para script.google.com): idem.
-  //
-  // Dentro del mismo bucket de 3s, todas las requests van a la misma URL
-  // → ambas capas cachean (no quema cuota).
-  const tBucket = Math.floor(Date.now() / 3000);
+  // Cache buster por ventana de tiempo, alineado al revalidate del fetch.
+  // CADA ventana nueva = 1 regeneración = 1 ISR Write en Vercel. Con ventana de
+  // 3s eso quemaba la cuota de ISR Writes de Hobby (200k/mes) ante cualquier
+  // tráfico/crawler → riesgo de pausa del proyecto. Por eso:
+  //   - PRODUCCIÓN: ventana de 300s (5 min). Pocas regeneraciones. La propagación
+  //     instantánea de los edits de la dueña la garantiza el webhook
+  //     /api/revalidate (revalidateTag("apps-script-api")), NO este bucket.
+  //   - DEV (localhost): 3s, porque el webhook no llega a localhost y el dev no
+  //     consume cuota de Vercel.
+  // Dentro de la misma ventana todas las requests comparten URL → cache HIT.
+  const isProd = process.env.NODE_ENV === "production";
+  const bucketMs = isProd ? 300_000 : 3_000;
+  const revalidateS = isProd ? 300 : 3;
+  const tBucket = Math.floor(Date.now() / bucketMs);
   url.searchParams.set("_t", String(tBucket));
 
   try {
-    // revalidate alineado al bucket (3s). El webhook, cuando funciona
-    // (solo en producción con URL pública), invalida antes vía revalidatePath.
     const res = await fetch(url.toString(), {
-      next: { revalidate: 3, tags: ["apps-script-api"] },
+      next: { revalidate: revalidateS, tags: ["apps-script-api"] },
       headers: { Accept: "application/json" },
     });
     if (!res.ok) return null;

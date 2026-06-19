@@ -20,7 +20,7 @@
  */
 
 import { NextRequest, NextResponse } from "next/server";
-import { revalidatePath } from "next/cache";
+import { revalidatePath, revalidateTag } from "next/cache";
 import { checkRateLimit, getClientIp, rateLimitHeaders } from "@/lib/ratelimit";
 
 export const runtime = "nodejs";
@@ -82,6 +82,19 @@ export async function POST(req: NextRequest) {
       // Continuar con el resto si uno falla
       console.error("revalidatePath fallo para", p, err);
     }
+  }
+
+  // Invalida TODOS los fetches al Apps Script de una (tag compartido en api.ts).
+  // Esto hace que el edit de la dueña se vea al instante AUNQUE el TTL del Data
+  // Cache sea largo (300s en prod). Es lo que permite subir el TTL —y bajar los
+  // ISR Writes— sin sacrificar la propagación inmediata.
+  // { expire: 0 } = expiración inmediata (Next 16): el próximo request hace
+  // refetch bloqueante y la primera visita post-edit ya ve datos frescos.
+  // (Con "max" sería stale-while-revalidate → la primera visita vería lo viejo.)
+  try {
+    revalidateTag("apps-script-api", { expire: 0 });
+  } catch (err) {
+    console.error("revalidateTag fallo", err);
   }
 
   return NextResponse.json(
