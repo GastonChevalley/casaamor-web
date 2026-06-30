@@ -28,7 +28,7 @@ export async function generateMetadata({
     ? producto.fotos
     : producto.fotoUrl ? [producto.fotoUrl] : [];
   const descripcionBase = producto.descripcion?.trim() ||
-    `${producto.nombre} — ${producto.proveedor}. ${fmtMonto(producto.precioEft)} en efectivo.`;
+    `${producto.nombre}. ${fmtMonto(producto.precioEft)} en efectivo o transferencia.`;
   const descripcion = descripcionBase.length > 160
     ? descripcionBase.slice(0, 157) + "…"
     : descripcionBase;
@@ -89,11 +89,9 @@ export default async function ProductoDetallePage({ params }: { params: Params }
     name: producto.nombre,
     sku: producto.sku,
     description: producto.descripcion?.trim() ||
-      `${producto.nombre} — ${producto.proveedor}.`,
+      `${producto.nombre}.`,
     image: fotos.length > 0 ? fotos.slice(0, 4) : undefined,
-    brand: producto.proveedor
-      ? { "@type": "Brand", name: producto.proveedor }
-      : undefined,
+    brand: { "@type": "Brand", name: "CasaAmor" },
     offers: {
       "@type": "Offer",
       url: siteUrl(`/productos/${encodeURIComponent(producto.sku)}`),

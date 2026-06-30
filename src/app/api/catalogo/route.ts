@@ -14,7 +14,6 @@ export async function GET() {
   const lite = productos.map((p: Producto) => ({
     sku: p.sku,
     nombre: p.nombre,
-    proveedor: p.proveedor,
     fotoUrl: p.fotoUrl || "",
     precioEft: p.precioEft,
     precioTn: p.precioTn,

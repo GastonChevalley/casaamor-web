@@ -69,7 +69,7 @@ export type Variante = {
 
 export type Producto = {
   sku: string;
-  proveedor: string;
+  proveedor?: string;   // interno; NO se expone en la web pública (no se renderiza)
   nombre: string;
   precioEft: number;
   precioTn: number;

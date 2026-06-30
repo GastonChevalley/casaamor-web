@@ -116,9 +116,6 @@ export function SearchDropdown({
                   )}
                 </div>
                 <div className="flex-1 min-w-0">
-                  <p className="text-[10px] uppercase tracking-wider text-ink/40 truncate">
-                    {p.proveedor}
-                  </p>
                   <p className="font-heading text-sm text-burgundy line-clamp-2 leading-snug">
                     {p.nombre}
                   </p>

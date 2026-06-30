@@ -9,7 +9,6 @@
 export type ProductoLite = {
   sku: string;
   nombre: string;
-  proveedor: string;
   fotoUrl: string;
   precioEft: number;
   precioTn: number;
