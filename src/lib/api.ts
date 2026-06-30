@@ -161,12 +161,12 @@ const CONFIGWEB_FALLBACK: ConfigWeb = {
   nav_categorias_pos: "abajo",       // 'inline' | 'abajo' | 'oculto'
   nav_categorias_en_footer: "FALSE",
   marquee_global_activo: "FALSE",
-  marquee_global_textos: "20% OFF EFECTIVO O TRANSFERENCIA · 3 CUOTAS SIN INTERÉS · ENVÍOS A TODO EL PAÍS",
+  marquee_global_textos: "TRANSFERENCIA O EFECTIVO · PAGÁS MENOS · 3 CUOTAS SIN INTERÉS CON TARJETA",
   marquee_global_color: "burgundy",
   cuotas_sin_interes: "3",
   cuotas_label_corto: "3 cuotas sin interés",
-  medios_pago_texto: "**Tarjeta de crédito / débito** (Visa, Mastercard, Amex)\n**Mercado Pago** — todas las opciones de pago\n**Transferencia bancaria** — 15% off del precio de lista\n**Efectivo** — solo retiro en local, 15% off",
-  medios_envio_texto: "**Andreani** — envío a domicilio en todo el país (24-72 hs)\n**Correo Argentino** — opción más económica\n**Retiro en local** — sin cargo, en CABA con cita previa\n\nVer detalles completos en la página de Envíos.",
+  medios_pago_texto: "**Transferencia o efectivo** — Pagás menos. Coordinás con nosotros por WhatsApp en el siguiente paso.\n**Tarjeta de crédito / débito o Mercado Pago** — Precio de lista · 3 cuotas sin interés · pagás online al instante.",
+  medios_envio_texto: "**Envío a convenir** — Coordinás el costo por WhatsApp según tu localidad.\n**Retiro sin cargo** — En Benavidez / Pacheco (zona norte), con cita previa.",
   mostrar_buscador: "TRUE",
   buscador_placeholder: "¿Qué estás buscando?",
   card_estilo: "clasico",
@@ -269,7 +269,7 @@ const PAGES_FALLBACK: Record<string, Page> = {
         config: {
           titulo: "Cómo te llega",
           texto:
-            "**A todo el país** con Andreani, Correo Argentino o el método que prefieras. Te confirmamos el costo exacto al cerrar la compra.\n\n**Retiro en local** sin costo si coordinamos por WhatsApp.\n\n**Tiempos**: CABA/GBA 2-4 días hábiles. Interior 4-7 días desde el pago acreditado.",
+            "**Envío a convenir** — Coordinamos el costo por WhatsApp según tu localidad, el peso y el tamaño del pedido. Te confirmamos todo antes de finalizar.\n\n**Retiro sin cargo** — En Benavidez / Pacheco (zona norte, GBA), con cita previa. Coordinamos un horario que te quede cómodo.\n\nUna vez confirmado tu pedido, nos contactamos por WhatsApp para coordinar la entrega.",
         },
       },
     ],
