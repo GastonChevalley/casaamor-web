@@ -22,6 +22,14 @@ type OpcionEnvioRemota = {
 const MP_PUBLIC_KEY = (process.env.NEXT_PUBLIC_MP_PUBLIC_KEY || "").trim();
 const MP_ENABLED = MP_PUBLIC_KEY.length > 0;
 
+// ─── Interruptor del envío con Correo Argentino ────────────────────────────
+// false = "Envío a convenir" (se coordina por WhatsApp). El flujo COMPLETO de
+// cotización con Correo Argentino (el useEffect que llama a /api/envios/cotizar
+// + las opciones "domicilio"/"sucursal" con precio en vivo) queda en el código,
+// INACTIVO y listo. Para reactivar Correo el día que se integre: poner `true` y
+// verificar /api/envios/cotizar + credenciales/tarifas. Ver REFERENCIA_MICORREO_CARGA_MASIVA.md.
+const ENVIO_CORREO_HABILITADO = false;
+
 // Inicializar SDK MP una sola vez en el cliente. initMercadoPago es no-op si
 // la key está vacía — defensa en profundidad para no romper si falta env var.
 let mpInited = false;
@@ -225,6 +233,7 @@ export function CheckoutClient({ config }: { config: ConfigWeb }) {
 
   // Costo del envío según opción elegida + cotización vigente.
   const costoEnvio = useMemo(() => {
+    if (!ENVIO_CORREO_HABILITADO) return 0;  // envío a convenir → sin cargo en el checkout
     if (form.envio === "showroom") return 0;
     const opc = cotizacion[form.envio];
     return opc?.precio || 0;
@@ -243,6 +252,7 @@ export function CheckoutClient({ config }: { config: ConfigWeb }) {
   // cotización entre cambios de "domicilio" y "sucursal" porque el endpoint
   // devuelve ambas en una sola llamada.
   useEffect(() => {
+    if (!ENVIO_CORREO_HABILITADO) return;  // envío a convenir → no se cotiza con Correo
     if (form.envio === "showroom") {
       setCotizacion({ domicilio: null, sucursal: null });
       setErrorCotizacion(null);
@@ -633,9 +643,9 @@ export function CheckoutClient({ config }: { config: ConfigWeb }) {
       );
       const envioTxt =
         form.envio === "showroom"
-          ? "Retiro en showroom"
+          ? "Retiro en local (Benavidez / Pacheco)"
           : form.envio === "domicilio"
-            ? `Envío a domicilio (${form.direccion}, ${form.ciudad}, CP ${form.codigoPostal})`
+            ? `Envío a domicilio${ENVIO_CORREO_HABILITADO ? "" : " (a convenir)"} (${form.direccion}, ${form.ciudad}, CP ${form.codigoPostal})`
             : `Retiro en sucursal Correo Argentino (${form.ciudad}, CP ${form.codigoPostal})`;
       const msg = [
         `Hola CasaAmor! Quiero coordinar una compra por transferencia / efectivo:`,
@@ -794,38 +804,52 @@ export function CheckoutClient({ config }: { config: ConfigWeb }) {
                 value="showroom"
                 seleccionada={form.envio}
                 onSeleccionar={(v) => actualizar("envio", v)}
-                titulo="Retiro en showroom"
-                descripcion="Coordinamos por WhatsApp. Sin costo de envío."
+                titulo="Retiro en local"
+                descripcion="Sin cargo · Benavidez / Pacheco, con cita previa. Coordinamos por WhatsApp."
                 precio={0}
               />
-              <OpcionEnvio
-                value="domicilio"
-                seleccionada={form.envio}
-                onSeleccionar={(v) => actualizar("envio", v)}
-                titulo="Envío a domicilio"
-                descripcion={
-                  cotizacion.domicilio
-                    ? `Correo Argentino — Llega en ${cotizacion.domicilio.plazoMinDias}-${cotizacion.domicilio.plazoMaxDias} días hábiles.`
-                    : "Correo Argentino — Ingresá el CP para cotizar."
-                }
-                precio={cotizacion.domicilio?.precio ?? null}
-              />
-              <OpcionEnvio
-                value="sucursal"
-                seleccionada={form.envio}
-                onSeleccionar={(v) => actualizar("envio", v)}
-                titulo="Retiro en sucursal de Correo Argentino"
-                descripcion={
-                  cotizacion.sucursal
-                    ? `Más económico que domicilio. Llega en ${cotizacion.sucursal.plazoMinDias}-${cotizacion.sucursal.plazoMaxDias} días hábiles.`
-                    : "Más económico que domicilio. Ingresá el CP para cotizar."
-                }
-                precio={cotizacion.sucursal?.precio ?? null}
-              />
+              {ENVIO_CORREO_HABILITADO ? (
+                <>
+                  <OpcionEnvio
+                    value="domicilio"
+                    seleccionada={form.envio}
+                    onSeleccionar={(v) => actualizar("envio", v)}
+                    titulo="Envío a domicilio"
+                    descripcion={
+                      cotizacion.domicilio
+                        ? `Correo Argentino — Llega en ${cotizacion.domicilio.plazoMinDias}-${cotizacion.domicilio.plazoMaxDias} días hábiles.`
+                        : "Correo Argentino — Ingresá el CP para cotizar."
+                    }
+                    precio={cotizacion.domicilio?.precio ?? null}
+                  />
+                  <OpcionEnvio
+                    value="sucursal"
+                    seleccionada={form.envio}
+                    onSeleccionar={(v) => actualizar("envio", v)}
+                    titulo="Retiro en sucursal de Correo Argentino"
+                    descripcion={
+                      cotizacion.sucursal
+                        ? `Más económico que domicilio. Llega en ${cotizacion.sucursal.plazoMinDias}-${cotizacion.sucursal.plazoMaxDias} días hábiles.`
+                        : "Más económico que domicilio. Ingresá el CP para cotizar."
+                    }
+                    precio={cotizacion.sucursal?.precio ?? null}
+                  />
+                </>
+              ) : (
+                <OpcionEnvio
+                  value="domicilio"
+                  seleccionada={form.envio}
+                  onSeleccionar={(v) => actualizar("envio", v)}
+                  titulo="Envío a domicilio"
+                  descripcion="A convenir — coordinamos el costo por WhatsApp según tu localidad."
+                  precio={null}
+                  textoSinPrecio="a convenir"
+                />
+              )}
             </div>
 
-            {/* Feedback de cotización (loading / error) — solo cuando elegiste domicilio o sucursal */}
-            {form.envio !== "showroom" && (
+            {/* Feedback de cotización (loading / error) — solo con Correo Argentino activo */}
+            {ENVIO_CORREO_HABILITADO && form.envio !== "showroom" && (
               <div className="mt-3 text-sm">
                 {cargandoCotizacion && (
                   <div className="inline-flex items-center gap-2 text-ink/70">
@@ -1367,6 +1391,7 @@ function OpcionEnvio({
   titulo,
   descripcion,
   precio,
+  textoSinPrecio,
 }: {
   value: "showroom" | "domicilio" | "sucursal";
   seleccionada: "showroom" | "domicilio" | "sucursal";
@@ -1374,6 +1399,7 @@ function OpcionEnvio({
   titulo: string;
   descripcion: string;
   precio: number | null;
+  textoSinPrecio?: string;
 }) {
   const activa = seleccionada === value;
   return (
@@ -1398,7 +1424,7 @@ function OpcionEnvio({
               {precio === 0 ? "Gratis" : fmtMonto(precio)}
             </div>
           )}
-          {precio === null && <div className="text-xs text-ink/50 italic">a calcular</div>}
+          {precio === null && <div className="text-xs text-ink/50 italic">{textoSinPrecio ?? "a calcular"}</div>}
         </div>
       </div>
     </button>

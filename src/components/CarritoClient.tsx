@@ -189,7 +189,7 @@ export function CarritoClient() {
             <dl className="space-y-2 text-sm">
               <div className="flex justify-between">
                 <dt className="text-ink/70">Envío</dt>
-                <dd className="text-ink/60 italic">se calcula al pagar</dd>
+                <dd className="text-ink/60 italic">a coordinar</dd>
               </div>
             </dl>
             <hr className="my-4 border-burgundy/10" />
