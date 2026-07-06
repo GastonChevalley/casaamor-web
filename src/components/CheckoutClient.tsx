@@ -23,12 +23,12 @@ const MP_PUBLIC_KEY = (process.env.NEXT_PUBLIC_MP_PUBLIC_KEY || "").trim();
 const MP_ENABLED = MP_PUBLIC_KEY.length > 0;
 
 // ─── Interruptor del envío con Correo Argentino ────────────────────────────
-// false = "Envío a convenir" (se coordina por WhatsApp). El flujo COMPLETO de
-// cotización con Correo Argentino (el useEffect que llama a /api/envios/cotizar
-// + las opciones "domicilio"/"sucursal" con precio en vivo) queda en el código,
-// INACTIVO y listo. Para reactivar Correo el día que se integre: poner `true` y
-// verificar /api/envios/cotizar + credenciales/tarifas. Ver REFERENCIA_MICORREO_CARGA_MASIVA.md.
-const ENVIO_CORREO_HABILITADO = false;
+// true = cotización en vivo con la API de Mi Correo Negocios (MiCorreo v1). El
+// useEffect llama a /api/envios/cotizar → esa ruta pega a la API oficial (o cae
+// al estimador local si faltara alguna credencial). Requiere en Vercel las env
+// vars MCN_API_USER / MCN_API_PASSWORD / MCN_CUSTOMER_ID (ver
+// @/lib/correo-argentino). Poner en `false` vuelve a "Envío a convenir" por WhatsApp.
+const ENVIO_CORREO_HABILITADO = true;
 
 // Inicializar SDK MP una sola vez en el cliente. initMercadoPago es no-op si
 // la key está vacía — defensa en profundidad para no romper si falta env var.

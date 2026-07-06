@@ -4,24 +4,24 @@
  * Cotiza el envío del carrito a un código postal destino. Devuelve opciones
  * de entrega (domicilio + sucursal) con precio y plazo estimado.
  *
- * ESTADO ACTUAL (B.2 — STUB): usa tabla local de tarifas Correo Argentino
- * 2026 + heurística de zona por rango de CP. Tarifas aproximadas, no oficiales.
- * Sirven para que el flow E2E quede listo y el cliente vea cotización real al
- * momento de pagar.
+ * ESTADO ACTUAL (B.2 — API REAL + fallback): cotiza contra la API oficial de
+ * Mi Correo Negocios (MiCorreo v1) usando las credenciales en env vars. Si la
+ * API no está configurada, falla o no cubre el CP, cae a un estimador local por
+ * zona (degradación elegante — el cliente siempre ve un precio y la venta no se
+ * traba). La respuesta trae `esEstimado`: false = tarifa oficial, true = estimado.
  *
- * CUANDO LLEGEN LAS CREDENCIALES API MCN (Mi Correo Negocios):
- *   1) Configurar MCN_USER_TOKEN y MCN_PASSWORD_TOKEN en Vercel env vars.
- *   2) Reemplazar la función `cotizarStub` por una llamada a
- *      `https://api.correoargentino.com.ar/micorreo/v1/rates` con auth Bearer.
- *   3) El shape de respuesta se mantiene igual — el frontend no necesita cambios.
+ * Env vars necesarias (server-side, NUNCA con prefijo NEXT_PUBLIC_):
+ *   MCN_API_USER      — userToken de la API (Basic Auth)
+ *   MCN_API_PASSWORD  — passwordToken de la API (Basic Auth)
+ *   MCN_CUSTOMER_ID   — customerId de 10 dígitos (string, con ceros a la izquierda)
+ *   MCN_API_BASE      — opcional; default producción. Test: https://apitest.correoargentino.com.ar/micorreo/v1
  *
- * Doc oficial: apiMiCorreo.pdf v1, endpoint POST /rates espera:
- *   { cpOrigen, cpDestino, peso (gramos, 1-25000), dimensiones (cm, max 150),
- *     deliveredType: "D" (domicilio) | "S" (sucursal) }
+ * El cliente de la API vive en @/lib/correo-argentino (auth JWT + cache + /rates).
  */
 
 import { NextRequest, NextResponse } from "next/server";
 import { checkRateLimit, getClientIp, rateLimitHeaders } from "@/lib/ratelimit";
+import { correoConfigurado, cotizarCorreo, type RateCorreo } from "@/lib/correo-argentino";
 
 export const runtime = "nodejs";
 
@@ -98,15 +98,34 @@ export async function POST(req: NextRequest) {
 
   const tipoEntrega = body.tipoEntrega || "ambas";
 
-  // Llamar al stub. Cuando llegen las credenciales reales, reemplazar acá.
-  const opciones = cotizarStub({
-    cpOrigen: CP_ORIGEN,
-    cpDestino,
-    pesoGramos,
-    altoCm,
-    anchoCm,
-    profundidadCm,
-  });
+  const argsPaquete = { cpOrigen: CP_ORIGEN, cpDestino, pesoGramos, altoCm, anchoCm, profundidadCm };
+
+  // Cotización REAL con la API MiCorreo si están las credenciales; si no está
+  // configurada, falla o no devuelve tarifas, caemos al estimador local.
+  let opciones: OpcionEnvio[];
+  let esEstimado: boolean;
+  if (correoConfigurado()) {
+    try {
+      const mapeadas = mapRatesToOpciones(await cotizarCorreo(argsPaquete));
+      if (mapeadas.length > 0) {
+        opciones = mapeadas;
+        esEstimado = false;
+      } else {
+        opciones = cotizarStub(argsPaquete);
+        esEstimado = true;
+      }
+    } catch (err) {
+      console.error(
+        "[envios/cotizar] API Correo falló, usando estimado:",
+        (err as Error)?.message || err,
+      );
+      opciones = cotizarStub(argsPaquete);
+      esEstimado = true;
+    }
+  } else {
+    opciones = cotizarStub(argsPaquete);
+    esEstimado = true;
+  }
 
   const opcionesFiltradas =
     tipoEntrega === "ambas" ? opciones : opciones.filter((o) => o.tipo === tipoEntrega);
@@ -119,11 +138,40 @@ export async function POST(req: NextRequest) {
       pesoGramos,
       transportista: "correo_argentino",
       opciones: opcionesFiltradas,
-      // Banderita para que el frontend muestre "tarifa aprox" hasta que conectemos la API real.
-      esEstimado: true,
+      // false = tarifa oficial de la API MiCorreo · true = estimador local.
+      esEstimado,
     },
     { headers: rateLimitHeaders(LIMIT, rl) },
   );
+}
+
+/**
+ * Convierte las tarifas de la API MiCorreo al shape OpcionEnvio del frontend.
+ * La API puede devolver varios productos por tipo (Clásico CP, Expreso EP);
+ * nos quedamos con el MÁS BARATO por tipo (domicilio / sucursal) para no
+ * saturar el checkout con opciones. Descarta tarifas con precio <= 0.
+ */
+function mapRatesToOpciones(rates: RateCorreo[]): OpcionEnvio[] {
+  const porTipo = new Map<"domicilio" | "sucursal", OpcionEnvio>();
+  for (const rt of rates) {
+    const precio = Math.round(rt.price);
+    if (precio <= 0) continue;
+    const tipo: "domicilio" | "sucursal" = rt.deliveredType === "S" ? "sucursal" : "domicilio";
+    const opc: OpcionEnvio = {
+      tipo,
+      precio,
+      plazoMinDias: rt.deliveryTimeMin,
+      plazoMaxDias: rt.deliveryTimeMax,
+      transportista: "correo_argentino",
+      descripcion:
+        tipo === "sucursal"
+          ? `${rt.productName} — Retiro en sucursal`
+          : `${rt.productName} — Entrega a domicilio`,
+    };
+    const prev = porTipo.get(tipo);
+    if (!prev || opc.precio < prev.precio) porTipo.set(tipo, opc);
+  }
+  return Array.from(porTipo.values());
 }
 
 // ───────────────────────────────────────────────────────────────────────────────
