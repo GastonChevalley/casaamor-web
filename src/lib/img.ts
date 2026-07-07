@@ -73,12 +73,19 @@ export function cloudinaryUrl(url: string | undefined | null, variant: ImgVarian
   let restoCamino = rest;
   if (!base.endsWith("/fetch/")) {
     const segments = rest.split("/");
-    if (segments.length > 0) {
-      const primero = segments[0];
-      // Versión "vNNN" → mantener. Transformación "w_600,c_fill" → quitar.
-      if (primero && !primero.match(/^v\d+$/) && primero.includes("_")) {
-        restoCamino = segments.slice(1).join("/");
+    const primero = segments[0];
+    // Versión "vNNN" → mantener. Transformación "w_600,c_fill" → quitar.
+    if (primero && !primero.match(/^v\d+$/) && primero.includes("_")) {
+      if (primero.includes("c_crop")) {
+        // Recorte MANUAL horneado por la dueña (Addendum 89): preservarlo y
+        // encadenar SOLO el resize después (sin g_auto — el encuadre ya está
+        // elegido, la IA no debe recortar de nuevo). Orden: crop → resize.
+        const resto = segments.slice(1).join("/");
+        const resize = transformacion.replace(/,?g_auto/, "");
+        return `${base}${primero}/${resize}/${resto}`;
       }
+      // Transformación estándar previa → reemplazar por la variante.
+      restoCamino = segments.slice(1).join("/");
     }
   }
 
