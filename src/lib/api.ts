@@ -139,7 +139,7 @@ const API_CONFIGURED = Boolean(API_BASE && API_TOKEN);
 const CONFIGWEB_FALLBACK: ConfigWeb = {
   site_title: "CasaAmor",
   site_tagline: "Decoración con amor",
-  site_descripcion: "Boutique de decoración y objetos únicos para tu hogar.",
+  site_descripcion: "Boutique de decoración y objetos únicos para tu hogar. Envíos a todo el país.",
   font_heading: "fraunces",
   font_body: "geist",
   color_burgundy: "#b24966",
@@ -166,7 +166,7 @@ const CONFIGWEB_FALLBACK: ConfigWeb = {
   cuotas_sin_interes: "3",
   cuotas_label_corto: "3 cuotas sin interés",
   medios_pago_texto: "**Transferencia o efectivo** — Pagás menos. Coordinás con nosotros por WhatsApp en el siguiente paso.\n**Tarjeta de crédito / débito o Mercado Pago** — Precio de lista · 3 cuotas sin interés · pagás online al instante.",
-  medios_envio_texto: "**Envío a convenir** — Coordinás el costo por WhatsApp según tu localidad.\n**Retiro sin cargo** — En Benavidez / Pacheco (zona norte), con cita previa.",
+  medios_envio_texto: "**Envío a domicilio o sucursal** — Con Correo Argentino a todo el país; el costo se calcula al finalizar la compra según tu código postal.\n**Retiro sin cargo** — En Benavidez / Pacheco (zona norte), con cita previa.",
   mostrar_buscador: "TRUE",
   buscador_placeholder: "¿Qué estás buscando?",
   card_estilo: "clasico",
@@ -269,7 +269,7 @@ const PAGES_FALLBACK: Record<string, Page> = {
         config: {
           titulo: "Cómo te llega",
           texto:
-            "**Envío a convenir** — Coordinamos el costo por WhatsApp según tu localidad, el peso y el tamaño del pedido. Te confirmamos todo antes de finalizar.\n\n**Retiro sin cargo** — En Benavidez / Pacheco (zona norte, GBA), con cita previa. Coordinamos un horario que te quede cómodo.\n\nUna vez confirmado tu pedido, nos contactamos por WhatsApp para coordinar la entrega.",
+            "**Envío a domicilio** — Con Correo Argentino a todo el país. Al finalizar la compra ingresás tu código postal y ves el costo exacto al instante. Llega en 2 a 5 días hábiles.\n\n**Retiro en sucursal de Correo Argentino** — Una opción más económica: retirás tu pedido en la sucursal de Correo más cercana.\n\n**Retiro sin cargo en el local** — En Benavidez / Pacheco (zona norte, GBA), con cita previa. Coordinamos un horario que te quede cómodo.\n\nEl costo del envío se calcula automáticamente en el checkout según tu ubicación y el peso del pedido — sin sorpresas.",
         },
       },
     ],
