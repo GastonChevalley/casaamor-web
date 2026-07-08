@@ -29,18 +29,30 @@ export function MarqueeBlock({ config }: { config: MarqueeBlockConfig }) {
   const separador = config?.separador || "·";
   const colorKey = String(config?.color || "burgundy").trim().toLowerCase() as MarqueeBlockConfig["color"];
   const colorClass = (colorKey && COLOR_CLASSES[colorKey]) || COLOR_CLASSES.burgundy;
-  const velocidad = Math.max(5, Math.min(120, Number(config?.velocidad) || 30));
+  const velocidadBase = Math.max(5, Math.min(120, Number(config?.velocidad) || 30));
 
-  const items = textos.flatMap((t, i) => [
-    <span key={`t-${i}`} className="px-3 font-medium tracking-wide text-xs sm:text-sm">{t}</span>,
-    <span key={`s-${i}`} className="opacity-70" aria-hidden>{separador}</span>,
-  ]);
+  // Cada "grupo" tiene que ser más ANCHO que la pantalla; si no, el loop
+  // (translateX -50% sobre 2 grupos idénticos) deja huecos y con pocos textos el
+  // banner se ve "cortado" y no cruza todo el ancho. Repetimos los textos según su
+  // largo para garantizar ~320+ caracteres por grupo (cubre desktops anchos). La
+  // duración escala con las repeticiones → la velocidad (px/s) queda igual sin
+  // importar cuántos textos haya.
+  const joinedLen = textos.join(" · ").length || 1;
+  const rep = Math.min(20, Math.max(2, Math.ceil(320 / joinedLen)));
+  const textosGrupo = Array.from({ length: rep }).flatMap(() => textos);
+  const velocidad = velocidadBase * rep;
+
+  const grupo = (pref: string) =>
+    textosGrupo.flatMap((t, i) => [
+      <span key={`t-${pref}-${i}`} className="px-3 font-medium tracking-wide text-xs sm:text-sm">{t}</span>,
+      <span key={`s-${pref}-${i}`} className="opacity-70" aria-hidden>{separador}</span>,
+    ]);
 
   return (
     <div className={`overflow-hidden py-2 ${colorClass}`} role="region" aria-label="Promociones">
       <div className="marquee-track" style={{ ["--marquee-duration" as string]: `${velocidad}s` }}>
-        <div className="flex items-center" aria-hidden={false}>{items}</div>
-        <div className="flex items-center" aria-hidden>{items}</div>
+        <div className="flex items-center shrink-0">{grupo("a")}</div>
+        <div className="flex items-center shrink-0" aria-hidden>{grupo("b")}</div>
       </div>
     </div>
   );
