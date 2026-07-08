@@ -161,7 +161,7 @@ const CONFIGWEB_FALLBACK: ConfigWeb = {
   nav_categorias_pos: "abajo",       // 'inline' | 'abajo' | 'oculto'
   nav_categorias_en_footer: "FALSE",
   marquee_global_activo: "FALSE",
-  marquee_global_textos: "TRANSFERENCIA O EFECTIVO · PAGÁS MENOS · 3 CUOTAS SIN INTERÉS CON TARJETA",
+  marquee_global_textos: "ENVÍOS A TODO EL PAÍS · TRANSFERENCIA O EFECTIVO · PAGÁS MENOS · 3 CUOTAS SIN INTERÉS CON TARJETA",
   marquee_global_color: "burgundy",
   cuotas_sin_interes: "3",
   cuotas_label_corto: "3 cuotas sin interés",
