@@ -116,9 +116,22 @@ export function Footer({
       </div>
 
       <div className="border-t border-cream-light/15">
-        <div className="max-w-6xl mx-auto px-4 sm:px-6 py-4 text-xs opacity-60 flex flex-wrap justify-between gap-2">
-          <span>© {new Date().getFullYear()}{titulo ? ` ${titulo} —` : ""} Todos los derechos reservados</span>
-          <span>{footerTexto}</span>
+        <div className="max-w-6xl mx-auto px-4 sm:px-6 py-4 flex flex-wrap items-center justify-between gap-x-6 gap-y-2 text-xs">
+          <div className="flex flex-wrap gap-x-4 gap-y-1">
+            <Link
+              href="/arrepentimiento"
+              className="text-cream-light/85 underline hover:text-gold transition-colors"
+            >
+              Botón de Arrepentimiento
+            </Link>
+            <Link href="/devoluciones" className="text-cream-light/70 hover:text-gold transition-colors">
+              Cambios y Devoluciones
+            </Link>
+          </div>
+          <div className="flex flex-wrap gap-x-4 gap-y-1 opacity-60">
+            <span>© {new Date().getFullYear()}{titulo ? ` ${titulo} —` : ""} Todos los derechos reservados</span>
+            <span>{footerTexto}</span>
+          </div>
         </div>
       </div>
     </footer>
