@@ -60,9 +60,42 @@ function asegurarMPInit(): boolean {
  *   - Respuesta trae `preferenceId` → se pasa al Payment Brick.
  *   - El brick maneja el flujo de cobro y redirige a /checkout/exito|pendiente|error.
  */
+/**
+ * Clave idempotente para el pedido por transferencia, estable entre remounts del
+ * componente y reintentos tras error de red (evita crear dos pedidos + doble
+ * reserva de stock). Se guarda en sessionStorage atada a la "firma" del carrito:
+ * si el carrito cambia, se genera una clave nueva; si es el mismo, se reutiliza.
+ * Se limpia al concretar el pedido (pwClearIdempotency).
+ */
+function pwIdempotencyKey(cartSig: string): string {
+  try {
+    const raw = sessionStorage.getItem("pw_idem");
+    if (raw) {
+      const o = JSON.parse(raw) as { key?: string; cartSig?: string };
+      if (o && o.cartSig === cartSig && o.key) return o.key;
+    }
+  } catch {
+    /* sessionStorage no disponible */
+  }
+  const key = `pw-${Date.now()}-${Math.random().toString(36).slice(2, 10)}`;
+  try {
+    sessionStorage.setItem("pw_idem", JSON.stringify({ key, cartSig }));
+  } catch {
+    /* ignore */
+  }
+  return key;
+}
+function pwClearIdempotency() {
+  try {
+    sessionStorage.removeItem("pw_idem");
+  } catch {
+    /* ignore */
+  }
+}
+
 export function CheckoutClient({ config }: { config: ConfigWeb }) {
   const router = useRouter();
-  const { items, total, totalTn, cantidad, hidratado } = useCart();
+  const { items, total, totalTn, cantidad, hidratado, vaciar } = useCart();
 
   const [form, setForm] = useState({
     nombre: "",
@@ -78,6 +111,8 @@ export function CheckoutClient({ config }: { config: ConfigWeb }) {
   });
   const [enviando, setEnviando] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  // Éxito del pedido por transferencia/efectivo (pantalla de confirmación).
+  const [pedidoOk, setPedidoOk] = useState<{ pedidoId: string | null; waUrl: string; ok: boolean } | null>(null);
   const [preferenceId, setPreferenceId] = useState<string | null>(null);
   // Snapshot del payer congelado en el momento de crear la preference.
   // CRÍTICO: NO se lee del form en tiempo real porque eso dispararía
@@ -207,10 +242,10 @@ export function CheckoutClient({ config }: { config: ConfigWeb }) {
   // Si el carrito queda vacío (eliminados todos los items mientras está en /checkout),
   // redirigir suavemente al catálogo.
   useEffect(() => {
-    if (hidratado && items.length === 0) {
+    if (hidratado && items.length === 0 && !pedidoOk) {
       router.replace("/productos");
     }
-  }, [hidratado, items.length, router]);
+  }, [hidratado, items.length, router, pedidoOk]);
 
   // Trackear inicio del checkout.
   useEffect(() => {
@@ -657,7 +692,11 @@ export function CheckoutClient({ config }: { config: ConfigWeb }) {
         `*Productos:*`,
         ...lineas,
         "",
-        `*Total por transferencia / efectivo:* $${Math.round(total).toLocaleString("es-AR")}`,
+        costoEnvio > 0
+          ? `*Subtotal productos:* $${Math.round(total).toLocaleString("es-AR")}`
+          : null,
+        costoEnvio > 0 ? `*Envío:* $${Math.round(costoEnvio).toLocaleString("es-AR")}` : null,
+        `*Total a transferir:* $${Math.round(total + costoEnvio).toLocaleString("es-AR")}`,
         `*Entrega:* ${envioTxt}`,
         form.notas ? `*Notas:* ${form.notas}` : null,
       ]
@@ -665,9 +704,59 @@ export function CheckoutClient({ config }: { config: ConfigWeb }) {
         .join("\n");
       const waUrl = `https://wa.me/${wa}?text=${encodeURIComponent(msg)}`;
       trackEvent("checkout_whatsapp_selected", { total });
-      setEnviando(false);
-      window.open(waUrl, "_blank");
-      return;
+
+      // Crear el pedido en el backend: lo registra como "pendiente de pago",
+      // RESERVA el stock y manda el email con los datos para transferir. La clave
+      // idempotente se deriva del carrito para no duplicar el pedido en reintentos.
+      const cartSig = items.map((i) => `${i.sku}:${i.cantidad}`).join("|") + "|" + form.email;
+      const idempotencyKey = pwIdempotencyKey(cartSig);
+      const entregaDetalle =
+        form.envio === "showroom"
+          ? ""
+          : `${form.direccion}, ${form.ciudad}, CP ${form.codigoPostal}`;
+      try {
+        const r = await fetch("/api/pedidos/crear", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({
+            cliente: { nombre: form.nombre, email: form.email, telefono: form.telefono },
+            items: items.map((it) => ({
+              sku: it.sku,
+              nombre: it.nombre,
+              cantidad: it.cantidad,
+              precioUnit: it.precioUnit,
+              variante: it.variante,
+            })),
+            total,
+            envioCosto: costoEnvio,
+            entrega: form.envio,
+            entregaDetalle,
+            notas: form.notas,
+            idempotencyKey,
+          }),
+        });
+        const data = await r.json().catch(() => ({}));
+        setEnviando(false);
+        if (r.ok && data?.ok) {
+          trackEvent("checkout_pedido_creado", { total });
+          pwClearIdempotency();
+          vaciar();
+          setPedidoOk({ pedidoId: data.pedidoId || null, waUrl, ok: true });
+          window.scrollTo(0, 0);
+          return;
+        }
+        // No se pudo registrar el pedido: no perder la venta → igual ofrecemos
+        // coordinar por WhatsApp (el carrito se mantiene por si quiere reintentar).
+        trackEvent("checkout_pedido_error", { total });
+        setPedidoOk({ pedidoId: null, waUrl, ok: false });
+        window.scrollTo(0, 0);
+        return;
+      } catch {
+        setEnviando(false);
+        setPedidoOk({ pedidoId: null, waUrl, ok: false });
+        window.scrollTo(0, 0);
+        return;
+      }
     }
 
     // Branch MP: si MP no está configurado, fallback al WhatsApp con aviso.
@@ -735,6 +824,52 @@ export function CheckoutClient({ config }: { config: ConfigWeb }) {
       setEnviando(false);
       setError("Error de red. Verificá tu conexión e intentá de nuevo.");
     }
+  }
+
+  // Pantalla de confirmación tras crear un pedido por transferencia/efectivo.
+  if (pedidoOk) {
+    return (
+      <div className="max-w-xl mx-auto px-6 sm:px-10 py-16 text-center">
+        <div className="text-5xl mb-4">{pedidoOk.ok ? "🧾" : "💬"}</div>
+        <h1 className="font-heading text-3xl text-burgundy mb-3">
+          {pedidoOk.ok ? "¡Pedido recibido!" : "Coordinemos por WhatsApp"}
+        </h1>
+        {pedidoOk.ok ? (
+          <p className="text-ink/70 mb-2">
+            Te enviamos un email con los datos para transferir.
+            {pedidoOk.pedidoId ? (
+              <>
+                {" "}
+                Tu pedido <b className="text-burgundy">{pedidoOk.pedidoId}</b> queda reservado.
+              </>
+            ) : null}
+          </p>
+        ) : (
+          <p className="text-ink/70 mb-2">
+            No pudimos registrar el pedido automáticamente, pero escribinos por WhatsApp y lo
+            coordinamos en el momento. Tu carrito quedó guardado.
+          </p>
+        )}
+        <p className="text-ink/60 text-sm mb-8">
+          {pedidoOk.ok
+            ? "También podés mandarnos el comprobante directo por WhatsApp:"
+            : "Tocá el botón para abrir el chat con nosotros:"}
+        </p>
+        <a
+          href={pedidoOk.waUrl}
+          target="_blank"
+          rel="noopener noreferrer"
+          className="inline-flex items-center gap-2 bg-[#25D366] hover:brightness-95 text-white font-semibold px-6 py-3 rounded-lg transition"
+        >
+          Abrir WhatsApp
+        </a>
+        <div className="mt-8">
+          <Link href="/productos" className="text-burgundy hover:text-gold text-sm">
+            Seguir comprando
+          </Link>
+        </div>
+      </div>
+    );
   }
 
   if (!hidratado) {
