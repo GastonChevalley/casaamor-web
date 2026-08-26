@@ -38,6 +38,9 @@ export type CartItem = {
   altoCm?: number;
   anchoCm?: number;
   profundidadCm?: number;
+  /** Stock disponible al momento de agregar (snapshot). Tope de cantidad en el
+   *  carrito. Es orientativo (puede quedar viejo) — el server revalida al comprar. */
+  stock?: number;
 };
 
 /**
@@ -86,11 +89,12 @@ export function fmtMonto(n: number): string {
 /**
  * Dimensiones agregadas del paquete del carrito para cotizador Correo (B.2).
  *
- * Estrategia simple para evitar tener que armar un cálculo de "cuántas cajas".
- * Asumimos UN solo paquete (el más eficiente para boutique pequeña):
- *   - peso = suma de pesos × cantidad de cada item (mínimo 100 g)
- *   - dimensión = la MÁXIMA de cada dim entre items × cantidad de items para
- *     la dim más larga (apilamos largo + alto/2 para reflejar capas)
+ * Asumimos UN solo paquete (lo más común para boutique pequeña). Modelo POR
+ * VOLUMEN: peso = suma de pesos × cantidad; y la caja se dimensiona por el volumen
+ * total de los productos (+ aire de packaging), como un cubo cuyos lados no bajan
+ * del item más grande. Esto evita el bug del modelo viejo, que "apilaba" la
+ * dimensión más larga × cantidad y para muchas unidades chicas superaba el límite
+ * de 150 cm de Correo (ej: 21 frascos de 13 cm daban 300 cm → cotización bloqueada).
  *
  * Si un item no tiene peso/dim cargado, se asume el default genérico
  * (0.5 kg, 20×15×10 cm) para no devolver 0 que rompería la cotización.
@@ -111,6 +115,7 @@ export function calcularPaqueteCarrito(items: CartItem[]): PaqueteCarrito {
     return { pesoGramos: 100, altoCm: 10, anchoCm: 10, profundidadCm: 10, cantidadItems: 0 };
   }
   let pesoKgTotal = 0;
+  let volTotalCm3 = 0;
   let maxAlto = 0;
   let maxAncho = 0;
   let maxProf = 0;
@@ -121,41 +126,43 @@ export function calcularPaqueteCarrito(items: CartItem[]): PaqueteCarrito {
     const alto = it.altoCm && it.altoCm > 0 ? it.altoCm : DEFAULT_DIM_CM.alto;
     const ancho = it.anchoCm && it.anchoCm > 0 ? it.anchoCm : DEFAULT_DIM_CM.ancho;
     const prof = it.profundidadCm && it.profundidadCm > 0 ? it.profundidadCm : DEFAULT_DIM_CM.prof;
-    pesoKgTotal += peso * it.cantidad;
+    const cant = Math.max(1, Math.floor(it.cantidad || 1));
+    pesoKgTotal += peso * cant;
+    volTotalCm3 += alto * ancho * prof * cant;
     maxAlto = Math.max(maxAlto, alto);
     maxAncho = Math.max(maxAncho, ancho);
     maxProf = Math.max(maxProf, prof);
-    cantidadItems += it.cantidad;
+    cantidadItems += cant;
   }
 
-  // Para múltiples unidades del mismo item, sumamos en la dimensión más larga
-  // (aproximación simple: el paquete se "alarga" en lugar de "engordar").
-  // Factor 1.1 por relleno de packaging (papel, burbuja).
-  const padding = 1.1;
-  let finalAlto = maxAlto;
-  let finalAncho = Math.round(maxAncho * padding);
-  let finalProf = Math.round(maxProf * padding);
-  if (cantidadItems > 1) {
-    const dimensiones: Array<["alto" | "ancho" | "prof", number]> = [
-      ["alto", maxAlto],
-      ["ancho", maxAncho],
-      ["prof", maxProf],
-    ];
-    dimensiones.sort((a, b) => b[1] - a[1]); // dim más larga primero
-    const mayor = dimensiones[0][0];
-    const sumaPorRepeticiones = Math.round(dimensiones[0][1] * cantidadItems * padding);
-    if (mayor === "alto") finalAlto = sumaPorRepeticiones;
-    else if (mayor === "ancho") finalAncho = sumaPorRepeticiones;
-    else finalProf = sumaPorRepeticiones;
-  } else {
-    finalAlto = Math.round(maxAlto * padding);
+  const pesoGramos = Math.max(100, Math.round(pesoKgTotal * 1000));
+
+  // 1 sola unidad → el paquete es el item + un 10% de relleno.
+  if (cantidadItems <= 1) {
+    const p = 1.1;
+    return {
+      pesoGramos,
+      altoCm: Math.max(5, Math.round(maxAlto * p)),
+      anchoCm: Math.max(5, Math.round(maxAncho * p)),
+      profundidadCm: Math.max(5, Math.round(maxProf * p)),
+      cantidadItems,
+    };
   }
+
+  // Varias unidades → caja por VOLUMEN (no "apilar la dimensión más larga", que se
+  // disparaba y superaba el límite de 150 cm de Correo para muchas unidades chicas).
+  // Armamos una caja tipo cubo cuyo volumen ≈ volumen real de los productos + aire
+  // de packaging; cada lado no puede ser menor que el item más grande en ese eje.
+  // El precio de Correo lo domina el mayor entre peso real y peso volumétrico, así
+  // que la forma exacta importa poco mientras la caja tenga el volumen correcto.
+  const PACKING = 1.35; // relleno + aire entre productos
+  const ladoCubo = Math.ceil(Math.cbrt(volTotalCm3 * PACKING));
 
   return {
-    pesoGramos: Math.max(100, Math.round(pesoKgTotal * 1000)),
-    altoCm: Math.max(5, finalAlto),
-    anchoCm: Math.max(5, finalAncho),
-    profundidadCm: Math.max(5, finalProf),
+    pesoGramos,
+    altoCm: Math.max(5, maxAlto, ladoCubo),
+    anchoCm: Math.max(5, maxAncho, ladoCubo),
+    profundidadCm: Math.max(5, maxProf, ladoCubo),
     cantidadItems,
   };
 }

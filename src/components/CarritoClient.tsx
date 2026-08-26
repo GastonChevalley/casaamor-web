@@ -153,7 +153,12 @@ export function CarritoClient() {
                         type="button"
                         onClick={() => cambiarCantidad(item.lineId, item.cantidad + 1)}
                         aria-label="Sumar"
-                        className="px-2 py-1.5 text-burgundy hover:bg-cream-light transition-colors"
+                        className="px-2 py-1.5 text-burgundy hover:bg-cream-light transition-colors disabled:opacity-30"
+                        disabled={
+                          typeof item.stock === "number" &&
+                          item.stock > 0 &&
+                          item.cantidad >= item.stock
+                        }
                       >
                         <Plus size={14} />
                       </button>
@@ -176,6 +181,14 @@ export function CarritoClient() {
                       )}
                     </div>
                   </div>
+                  {typeof item.stock === "number" &&
+                    item.stock > 0 &&
+                    item.cantidad >= item.stock && (
+                      <p className="text-xs text-amber-700 mt-1.5">
+                        Máximo disponible: {item.stock}{" "}
+                        {item.stock === 1 ? "unidad" : "unidades"}
+                      </p>
+                    )}
                 </div>
               </li>
             );

@@ -138,6 +138,8 @@ export function ProductoDetalleClient({
       altoCm: producto.altoCm,
       anchoCm: producto.anchoCm,
       profundidadCm: producto.profundidadCm,
+      // Tope de stock para el carrito (snapshot).
+      stock: Number(datos.stock) || 0,
     });
     trackEvent("add_to_cart", {
       sku: skuParaMensaje,

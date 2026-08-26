@@ -102,6 +102,52 @@ export async function POST(req: NextRequest) {
     return NextResponse.json({ ok: false, error: "items_invalidos" }, { status: 400 });
   }
 
+  // Validación de stock server-side ANTES de cobrar (el carrito ya topea del lado
+  // cliente; esto cubre carritos viejos / stock que bajó). Fail-open: si no se puede
+  // verificar (backend caído/lento), se sigue igual para no perder la venta.
+  try {
+    const API_BASE = process.env.NEXT_PUBLIC_APP_SCRIPT_URL || "";
+    const API_TOKEN = process.env.APP_SCRIPT_API_TOKEN || "";
+    if (API_BASE && API_TOKEN) {
+      const pedidoPorSku: Record<string, number> = {};
+      for (const it of mpItems) {
+        pedidoPorSku[it.id] = (pedidoPorSku[it.id] || 0) + it.quantity;
+      }
+      const skus = Object.keys(pedidoPorSku).join(",");
+      const rs = await fetch(
+        `${API_BASE}?api=stock&token=${encodeURIComponent(API_TOKEN)}&skus=${encodeURIComponent(skus)}`,
+        { redirect: "follow", cache: "no-store", signal: AbortSignal.timeout(6000) },
+      );
+      const ds = (await rs.json().catch(() => null)) as { stock?: Record<string, number> } | null;
+      if (ds?.stock) {
+        const stockMap = ds.stock;
+        // Fail-open por SKU: solo bloqueamos los SKUs cuyo stock CONOCEMOS. Si un
+        // SKU no vino en el mapa (mapa vacío / desajuste), NO se bloquea la venta.
+        const faltantes = Object.entries(pedidoPorSku)
+          .filter(
+            ([sku, cant]) =>
+              Object.prototype.hasOwnProperty.call(stockMap, sku) && cant > (stockMap[sku] ?? 0),
+          )
+          .map(([sku, cant]) => ({ sku, pedido: cant, disponible: stockMap[sku] ?? 0 }));
+        if (faltantes.length > 0) {
+          return NextResponse.json(
+            {
+              ok: false,
+              error: "stock_insuficiente",
+              faltantes,
+              message: `Cambió el stock disponible: ${faltantes
+                .map((f) => `${f.sku} (quedan ${f.disponible})`)
+                .join(", ")}. Ajustá las cantidades del carrito.`,
+            },
+            { status: 409, headers: rateLimitHeaders(LIMIT, rl) },
+          );
+        }
+      }
+    }
+  } catch {
+    // Fail-open: no bloquear la venta por un problema al verificar stock.
+  }
+
   // External reference único para idempotencia + tracking.
   const externalReference = `cas-${Date.now()}-${Math.random().toString(36).slice(2, 10)}`;
 

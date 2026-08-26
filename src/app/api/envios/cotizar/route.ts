@@ -86,15 +86,13 @@ export async function POST(req: NextRequest) {
     );
   }
 
-  const altoCm = Math.max(5, Math.round(Number(body.altoCm) || 15));
-  const anchoCm = Math.max(5, Math.round(Number(body.anchoCm) || 20));
-  const profundidadCm = Math.max(5, Math.round(Number(body.profundidadCm) || 10));
-  if (altoCm > 150 || anchoCm > 150 || profundidadCm > 150) {
-    return NextResponse.json(
-      { ok: false, error: "dim_excedida", message: "Alguna dimensión supera los 150 cm permitidos." },
-      { status: 400 },
-    );
-  }
+  // Correo limita cada lado a 150 cm. En vez de RECHAZAR (bloqueaba la compra), se
+  // clampa a 150: para paquetes densos el peso REAL domina la tarifa, así que el
+  // precio queda igual de razonable y nunca se pierde la venta. El modelo de caja
+  // (calcularPaqueteCarrito) ya mantiene las medidas bajo 150 para pedidos normales.
+  const altoCm = Math.max(5, Math.min(150, Math.round(Number(body.altoCm) || 15)));
+  const anchoCm = Math.max(5, Math.min(150, Math.round(Number(body.anchoCm) || 20)));
+  const profundidadCm = Math.max(5, Math.min(150, Math.round(Number(body.profundidadCm) || 10)));
 
   const tipoEntrega = body.tipoEntrega || "ambas";
 

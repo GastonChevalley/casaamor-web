@@ -120,11 +120,19 @@ export function CartProvider({ children }: { children: ReactNode }) {
       const lineId = buildLineId(payload.sku, payload.variante);
       const idx = prev.findIndex((it) => it.lineId === lineId);
       const cantidadInc = payload.cantidad && payload.cantidad > 0 ? payload.cantidad : 1;
+      // Tope por stock (snapshot). Si no viene stock válido, no se topea acá — el
+      // server revalida al comprar de todas formas.
+      const stock =
+        typeof payload.stock === "number" && payload.stock > 0 ? payload.stock : undefined;
       if (idx >= 0) {
         const copia = [...prev];
+        const stockVigente = stock ?? copia[idx].stock;
+        const tope =
+          typeof stockVigente === "number" && stockVigente > 0 ? stockVigente : Infinity;
         copia[idx] = {
           ...copia[idx],
-          cantidad: copia[idx].cantidad + cantidadInc,
+          stock: stockVigente,
+          cantidad: Math.min(copia[idx].cantidad + cantidadInc, tope),
         };
         return copia;
       }
@@ -137,7 +145,7 @@ export function CartProvider({ children }: { children: ReactNode }) {
           variante: payload.variante || "",
           precioUnit: payload.precioUnit,
           precioUnitTn: payload.precioUnitTn,
-          cantidad: cantidadInc,
+          cantidad: Math.min(cantidadInc, stock ?? Infinity),
           fotoUrl: payload.fotoUrl,
           slug: payload.slug,
           // Logística (B.2) — opcional. Si llega 0 o undefined,
@@ -146,6 +154,7 @@ export function CartProvider({ children }: { children: ReactNode }) {
           altoCm: payload.altoCm,
           anchoCm: payload.anchoCm,
           profundidadCm: payload.profundidadCm,
+          stock,
         },
       ];
     });
@@ -156,9 +165,12 @@ export function CartProvider({ children }: { children: ReactNode }) {
       if (nuevaCantidad <= 0) {
         return prev.filter((it) => it.lineId !== lineId);
       }
-      return prev.map((it) =>
-        it.lineId === lineId ? { ...it, cantidad: Math.floor(nuevaCantidad) } : it,
-      );
+      return prev.map((it) => {
+        if (it.lineId !== lineId) return it;
+        // No dejar pasar del stock disponible (snapshot).
+        const tope = typeof it.stock === "number" && it.stock > 0 ? it.stock : Infinity;
+        return { ...it, cantidad: Math.min(Math.floor(nuevaCantidad), tope) };
+      });
     });
   }, []);
 
