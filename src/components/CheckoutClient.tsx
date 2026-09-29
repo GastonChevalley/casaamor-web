@@ -95,7 +95,7 @@ function pwClearIdempotency() {
 
 export function CheckoutClient({ config }: { config: ConfigWeb }) {
   const router = useRouter();
-  const { items, total, totalTn, cantidad, hidratado, vaciar } = useCart();
+  const { items, total, totalTn, cantidad, hidratado, vaciar, cambiarCantidad } = useCart();
 
   const [form, setForm] = useState({
     nombre: "",
@@ -703,6 +703,14 @@ export function CheckoutClient({ config }: { config: ConfigWeb }) {
         .filter(Boolean)
         .join("\n");
       const waUrl = `https://wa.me/${wa}?text=${encodeURIComponent(msg)}`;
+      // Variante marcada para cuando el pedido NO se pudo registrar: sin esto la
+      // dueña recibe un WhatsApp idéntico al de un pedido normal y no tiene cómo
+      // saber que no quedó en la app ni se reservó stock.
+      const waUrlSinRegistrar = `https://wa.me/${wa}?text=${encodeURIComponent(
+        msg +
+          "\n\n⚠️ *ATENCIÓN: este pedido NO quedó registrado en el sistema y NO reservó stock.* " +
+          "Verificá disponibilidad y cargalo a mano antes de cobrar.",
+      )}`;
       trackEvent("checkout_whatsapp_selected", { total });
 
       // Crear el pedido en el backend: lo registra como "pendiente de pago",
@@ -745,15 +753,40 @@ export function CheckoutClient({ config }: { config: ConfigWeb }) {
           window.scrollTo(0, 0);
           return;
         }
-        // No se pudo registrar el pedido: no perder la venta → igual ofrecemos
-        // coordinar por WhatsApp (el carrito se mantiene por si quiere reintentar).
+        // Stock insuficiente: NO mandar a WhatsApp a ciegas (así se sobrevendió
+        // una vez: el backend rechazó el pedido, la clienta coordinó igual por
+        // WhatsApp y la dueña nunca supo que no había stock). Se le dice qué
+        // faltó, se le corrige el carrito y se le pide reconfirmar.
+        if (data?.error === "stock_insuficiente" && Array.isArray(data.faltantes)) {
+          trackEvent("checkout_stock_insuficiente", { total });
+          const detalles: string[] = [];
+          for (const f of data.faltantes as Array<{ sku: string; disponible: number }>) {
+            const disp = Math.max(0, Number(f.disponible) || 0);
+            for (const it of items.filter((i) => i.sku === f.sku)) {
+              detalles.push(
+                disp === 0
+                  ? `${it.nombre}: se agotó`
+                  : `${it.nombre}: queda ${disp} (pediste ${it.cantidad})`,
+              );
+              cambiarCantidad(it.lineId, disp);
+            }
+          }
+          setError(
+            `Se quedó sin stock mientras comprabas — ${detalles.join("; ")}. ` +
+              `Ya ajustamos tu carrito: revisalo y confirmá de nuevo.`,
+          );
+          window.scrollTo(0, 0);
+          return;
+        }
+        // Otro error (red, backend caído): no perder la venta → igual ofrecemos
+        // coordinar por WhatsApp, pero con el aviso de que NO quedó registrado.
         trackEvent("checkout_pedido_error", { total });
-        setPedidoOk({ pedidoId: null, waUrl, ok: false });
+        setPedidoOk({ pedidoId: null, waUrl: waUrlSinRegistrar, ok: false });
         window.scrollTo(0, 0);
         return;
       } catch {
         setEnviando(false);
-        setPedidoOk({ pedidoId: null, waUrl, ok: false });
+        setPedidoOk({ pedidoId: null, waUrl: waUrlSinRegistrar, ok: false });
         window.scrollTo(0, 0);
         return;
       }

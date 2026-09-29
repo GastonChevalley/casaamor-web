@@ -175,6 +175,10 @@ export function ProductoCard({
       precioUnitTn: precioTnConOferta,
       fotoUrl: fotos[0],
       slug: producto.sku,
+      // Tope de stock para el carrito (snapshot). SIN esto el carrito queda sin
+      // tope (Infinity) y se puede sobrevender: pasó con SUBL-0028 (2 pedidos,
+      // 1 en stock) y el pedido entero fue rechazado por el backend.
+      stock: Number(datos.stock) || 0,
       // Logística para cotizador (B.2)
       pesoKg: producto.pesoKg,
       altoCm: producto.altoCm,

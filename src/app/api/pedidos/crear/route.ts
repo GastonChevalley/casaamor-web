@@ -111,7 +111,13 @@ export async function POST(req: NextRequest) {
     const headers = rateLimitHeaders(LIMIT, rl);
     if (!r.ok || data.error || !data.ok) {
       return NextResponse.json(
-        { ok: false, error: data.error || "upstream_error" },
+        {
+          ok: false,
+          error: data.error || "upstream_error",
+          // `faltantes` (sku/pedido/disponible) viaja al cliente para poder
+          // decirle QUÉ ítem se quedó sin stock en vez de un error genérico.
+          ...(Array.isArray(data.faltantes) ? { faltantes: data.faltantes } : {}),
+        },
         { status: r.status || 502, headers },
       );
     }
