@@ -86,29 +86,52 @@ export async function CategoriasTilesBlock({
     icono: string;
     href: string;
   };
+  // Los slugs reales de las categorías son inconsistentes ("deco" y "tablas" en
+  // minúscula, pero "Matera", "Textil", "Baño" y "Ritual & Bienestar" capitalizados).
+  // Si la búsqueda es exacta, escribir "DECO" en el editor no matchea nada y el
+  // bloque queda vacío, o las fotos no aparecen. Por eso se indexa TAMBIÉN por una
+  // clave normalizada (minúsculas, sin espacios de sobra) y se busca por las dos.
+  const norm = (s: string) => String(s || "").trim().toLowerCase();
   const indice: Record<string, Resuelta> = {};
+  const registrar = (r: Resuelta) => {
+    indice[r.slug] = r;
+    const k = norm(r.slug);
+    if (!(k in indice)) indice[k] = r;
+  };
   arbol.forEach((c: Categoria) => {
-    indice[c.slug] = {
+    registrar({
       slug: c.slug,
       nombre: c.nombre,
       icono: c.icono || "",
       href: `/productos?cat=${encodeURIComponent(c.slug)}`,
-    };
+    });
     (c.hijos || []).forEach((h: CategoriaHija) => {
-      indice[h.slug] = {
+      registrar({
         slug: h.slug,
         nombre: h.nombre,
         icono: h.icono || "",
         href: `/productos?cat=${encodeURIComponent(c.slug)}&sub=${encodeURIComponent(h.slug)}`,
-      };
+      });
     });
+  });
+
+  // Mismo criterio tolerante para las fotos y bajadas, que se guardan por slug.
+  const imagenesNorm: Record<string, string> = {};
+  Object.keys(imagenes).forEach((k) => {
+    const n = norm(k);
+    if (imagenes[k] && !(n in imagenesNorm)) imagenesNorm[n] = imagenes[k];
+  });
+  const bajadasNorm: Record<string, string> = {};
+  Object.keys(bajadas).forEach((k) => {
+    const n = norm(k);
+    if (bajadas[k] && !(n in bajadasNorm)) bajadasNorm[n] = bajadas[k];
   });
 
   // Lista final de tiles según modo.
   let tiles: Resuelta[];
   if (modo === "manual" && Array.isArray(config.slugs) && config.slugs.length > 0) {
     tiles = config.slugs
-      .map((s) => indice[s])
+      .map((s) => indice[s] || indice[norm(s)])
       .filter((x): x is Resuelta => !!x);
   } else {
     tiles = arbol.map((c) => indice[c.slug]);
@@ -206,8 +229,8 @@ export async function CategoriasTilesBlock({
 
       <div className={`grid gap-3 sm:gap-5 ${mobileGridClass} ${gridClass}`}>
         {tiles.map((t) => {
-          const fotoUrl = imagenes[t.slug] || "";
-          const bajada = bajadas[t.slug] || "";
+          const fotoUrl = imagenes[t.slug] || imagenesNorm[norm(t.slug)] || "";
+          const bajada = bajadas[t.slug] || bajadasNorm[norm(t.slug)] || "";
           return (
             <Link
               key={t.slug}
