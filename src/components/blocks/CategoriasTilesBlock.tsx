@@ -139,7 +139,13 @@ export async function CategoriasTilesBlock({
 
   if (tiles.length === 0) {
     return (
-      <section className="max-w-6xl mx-auto px-6 sm:px-10 py-16">
+      <section
+        className="max-w-6xl mx-auto px-6 sm:px-10 py-16"
+        data-block="categorias-tiles"
+        data-modo={modo}
+        data-pedidos={(config.slugs || []).length}
+        data-disponibles={arbol.length}
+      >
         <div className="rounded-2xl border-2 border-dashed border-burgundy/20 p-10 text-center bg-cream/30 text-ink/60">
           No hay categorías para mostrar todavía.
         </div>
@@ -211,7 +217,12 @@ export async function CategoriasTilesBlock({
   const gradientClass = DEGRADE_PRESETS[degradeKey][intensidadKey];
 
   return (
-    <section className="max-w-6xl mx-auto px-6 sm:px-10 py-16">
+    <section
+      className="max-w-6xl mx-auto px-6 sm:px-10 py-16"
+      data-block="categorias-tiles"
+      data-modo={modo}
+      data-tiles={tiles.length}
+    >
       {(config.subtitulo || config.titulo) && (
         <header className="mb-8 text-center">
           {config.subtitulo && (
