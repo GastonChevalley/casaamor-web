@@ -75,6 +75,18 @@ export function HeaderCategoriasNav({ categorias }: { categorias: Categoria[] })
                   {cat.descripcion && (
                     <p className="text-xs text-ink/60 mb-3 max-w-md leading-snug px-1">{cat.descripcion}</p>
                   )}
+                  {/* Entrada a la categoría padre. Sin esto el trigger es solo un
+                      botón que abre el panel y no hay forma de llegar a la
+                      categoría completa desde escritorio (en mobile sí existe). */}
+                  <NavigationMenu.Link asChild>
+                    <Link
+                      href={`/productos?cat=${encodeURIComponent(cat.slug)}`}
+                      className="flex items-center justify-between gap-3 px-4 py-2.5 mb-1 rounded-md text-sm font-semibold text-burgundy hover:bg-cream hover:text-burgundy-dark transition-colors border-b border-burgundy/20"
+                    >
+                      Ver todo en {cat.nombre}
+                      <span aria-hidden className="text-base leading-none">›</span>
+                    </Link>
+                  </NavigationMenu.Link>
                   <ul
                     className={`grid gap-x-4 gap-y-0.5 list-none ${
                       cat.hijos.length > 6 ? "grid-cols-2" : "grid-cols-1"
