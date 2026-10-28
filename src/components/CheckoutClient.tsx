@@ -737,6 +737,10 @@ export function CheckoutClient({ config }: { config: ConfigWeb }) {
             })),
             total,
             envioCosto: costoEnvio,
+            // Peso y medidas con los que se cotizó el envío. Se guardan con el
+            // pedido para que la dueña cargue lo mismo en MiCorreo y el costo
+            // real coincida con lo que pagó el cliente.
+            paquete: calcularPaqueteCarrito(items),
             entrega: form.envio,
             entregaDetalle,
             notas: form.notas,
@@ -1352,9 +1356,9 @@ export function CheckoutClient({ config }: { config: ConfigWeb }) {
                     {form.metodoPago === "whatsapp" ? "Abriendo WhatsApp…" : "Creando pago…"}
                   </>
                 ) : form.metodoPago === "whatsapp" ? (
-                  <>Coordinar por WhatsApp {fmtMonto(total)}</>
+                  <>Coordinar por WhatsApp {fmtMonto(totalConEnvio)}</>
                 ) : (
-                  <>Continuar al pago {fmtMonto(totalTn)}</>
+                  <>Continuar al pago {fmtMonto(totalConEnvio)}</>
                 )}
               </button>
             )}

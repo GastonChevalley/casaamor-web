@@ -20,6 +20,15 @@ type BodyIn = {
   items?: ItemIn[];
   total?: number;
   envioCosto?: number;
+  /** Peso/medidas con los que se cotizo el envio (web/src/lib/cart.ts). */
+  paquete?: {
+    pesoGramos?: number;
+    altoCm?: number;
+    anchoCm?: number;
+    profundidadCm?: number;
+    cantidadItems?: number;
+    sinDatos?: number;
+  };
   entrega?: "showroom" | "domicilio" | "sucursal";
   entregaDetalle?: string;
   notas?: string;
@@ -98,6 +107,18 @@ export async function POST(req: NextRequest) {
         items,
         total: Number(body.total) || 0,
         envioCosto: Number(body.envioCosto) || 0,
+        // Peso/medidas con los que se cotizo el envio: el backend los guarda con
+        // el pedido para que la duenia cargue lo mismo en MiCorreo.
+        paquete: body.paquete && Number(body.paquete.pesoGramos) > 0
+          ? {
+              pesoGramos: Number(body.paquete.pesoGramos) || 0,
+              altoCm: Number(body.paquete.altoCm) || 0,
+              anchoCm: Number(body.paquete.anchoCm) || 0,
+              profundidadCm: Number(body.paquete.profundidadCm) || 0,
+              cantidadItems: Number(body.paquete.cantidadItems) || 0,
+              sinDatos: Number(body.paquete.sinDatos) || 0,
+            }
+          : null,
         entrega: String(body.entrega || "").trim(),
         entregaDetalle: String(body.entregaDetalle || "").trim(),
         notas: String(body.notas || "").trim(),

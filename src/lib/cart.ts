@@ -105,6 +105,9 @@ export type PaqueteCarrito = {
   anchoCm: number;
   profundidadCm: number;
   cantidadItems: number;
+  /** Cuántos ítems no tenían peso cargado y usaron el default. Si es > 0 la
+   *  cotización puede no ser exacta, y la app se lo avisa a la dueña. */
+  sinDatos: number;
 };
 
 const DEFAULT_PESO_KG = 0.5;
@@ -112,7 +115,7 @@ const DEFAULT_DIM_CM = { alto: 15, ancho: 20, prof: 10 };
 
 export function calcularPaqueteCarrito(items: CartItem[]): PaqueteCarrito {
   if (!items.length) {
-    return { pesoGramos: 100, altoCm: 10, anchoCm: 10, profundidadCm: 10, cantidadItems: 0 };
+    return { pesoGramos: 100, altoCm: 10, anchoCm: 10, profundidadCm: 10, cantidadItems: 0, sinDatos: 0 };
   }
   let pesoKgTotal = 0;
   let volTotalCm3 = 0;
@@ -120,8 +123,10 @@ export function calcularPaqueteCarrito(items: CartItem[]): PaqueteCarrito {
   let maxAncho = 0;
   let maxProf = 0;
   let cantidadItems = 0;
+  let sinDatos = 0;
 
   for (const it of items) {
+    if (!(it.pesoKg && it.pesoKg > 0)) sinDatos++;
     const peso = it.pesoKg && it.pesoKg > 0 ? it.pesoKg : DEFAULT_PESO_KG;
     const alto = it.altoCm && it.altoCm > 0 ? it.altoCm : DEFAULT_DIM_CM.alto;
     const ancho = it.anchoCm && it.anchoCm > 0 ? it.anchoCm : DEFAULT_DIM_CM.ancho;
@@ -146,6 +151,7 @@ export function calcularPaqueteCarrito(items: CartItem[]): PaqueteCarrito {
       anchoCm: Math.max(5, Math.round(maxAncho * p)),
       profundidadCm: Math.max(5, Math.round(maxProf * p)),
       cantidadItems,
+      sinDatos,
     };
   }
 
@@ -164,5 +170,6 @@ export function calcularPaqueteCarrito(items: CartItem[]): PaqueteCarrito {
     anchoCm: Math.max(5, maxAncho, ladoCubo),
     profundidadCm: Math.max(5, maxProf, ladoCubo),
     cantidadItems,
+    sinDatos,
   };
 }
