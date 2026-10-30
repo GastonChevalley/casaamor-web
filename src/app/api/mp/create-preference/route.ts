@@ -37,6 +37,10 @@ type BodyIn = {
     notas?: string;
   };
   envio?: "showroom" | "domicilio" | "sucursal";
+  /** Pedido ya creado en /api/pedidos/crear (reservó el stock). */
+  pedidoId?: string;
+  /** Costo del envío del pedido: se suma a la preference como un ítem. */
+  envioCosto?: number;
 };
 
 export async function POST(req: NextRequest) {
@@ -102,10 +106,40 @@ export async function POST(req: NextRequest) {
     return NextResponse.json({ ok: false, error: "items_invalidos" }, { status: 400 });
   }
 
+  // Pedido ya creado (flujo actual): el pedido YA reservó el stock y validó
+  // precios y envío en el servidor. El envío va como un ítem más: antes la
+  // preference llevaba solo los productos, y quien pagaba con dinero en cuenta
+  // de MP (que cobra el total de la preference) NO pagaba el envío.
+  const pedidoId = String(body.pedidoId || "").trim();
+  // Todo pago es de un pedido. Sin pedido (pestaña abierta desde antes de
+  // actualizar el sitio) se pide recargar: el camino viejo no reservaba stock ni
+  // cobraba el envío con dinero en cuenta.
+  if (!pedidoId) {
+    return NextResponse.json(
+      { ok: false, error: "recargar", message: "Actualizamos el sitio: recargá la página e intentá de nuevo." },
+      { status: 409 },
+    );
+  }
+  if (!/^PW-\d{8}-\d{4,}$/.test(pedidoId)) {
+    return NextResponse.json({ ok: false, error: "pedido_invalido" }, { status: 400 });
+  }
+  const envioCosto = Math.max(0, Math.round(Number(body.envioCosto) || 0));
+  if (pedidoId && envioCosto > 0) {
+    mpItems.push({
+      id: "ENVIO",
+      title: body.envio === "sucursal" ? "Envío a sucursal de Correo Argentino" : "Envío por Correo Argentino",
+      quantity: 1,
+      unit_price: envioCosto,
+      currency_id: "ARS",
+    });
+  }
+
   // Validación de stock server-side ANTES de cobrar (el carrito ya topea del lado
   // cliente; esto cubre carritos viejos / stock que bajó). Fail-open: si no se puede
   // verificar (backend caído/lento), se sigue igual para no perder la venta.
-  try {
+  // Con pedido NO se valida acá: el pedido ya reservó, y el stock que queda puede
+  // ser 0 justamente porque esta compra se lo llevó.
+  if (!pedidoId) try {
     const API_BASE = process.env.NEXT_PUBLIC_APP_SCRIPT_URL || "";
     const API_TOKEN = process.env.APP_SCRIPT_API_TOKEN || "";
     if (API_BASE && API_TOKEN) {
@@ -148,8 +182,12 @@ export async function POST(req: NextRequest) {
     // Fail-open: no bloquear la venta por un problema al verificar stock.
   }
 
-  // External reference único para idempotencia + tracking.
-  const externalReference = `cas-${Date.now()}-${Math.random().toString(36).slice(2, 10)}`;
+  // External reference: `pw:<pedidoId>` → el webhook sabe exactamente qué pedido
+  // se pagó (ítems, envío, dirección y monto esperado salen de ahí). Sin pedido
+  // (pestaña abierta antes del deploy) queda el formato viejo.
+  const externalReference = pedidoId
+    ? `pw:${pedidoId}`
+    : `cas-${Date.now()}-${Math.random().toString(36).slice(2, 10)}`;
 
   const preference = await crearPreference({
     items: mpItems,

@@ -34,6 +34,9 @@ type AddPayload = Omit<CartItem, "lineId" | "cantidad"> & {
   cantidad?: number;
 };
 
+/** Precio vigente de un SKU según el servidor (ver `precios_cambiaron`). */
+export type PrecioVigente = { sku: string; vigenteEft?: number | null; vigenteTn?: number | null };
+
 type CartContextValue = {
   items: CartItem[];
   /** Total en precio EFT (efectivo/transferencia, con 20% off vs TN). */
@@ -50,6 +53,9 @@ type CartContextValue = {
   eliminar: (lineId: string) => void;
   /** Vacía el carrito completo. */
   vaciar: () => void;
+  /** Aplica los precios vigentes que devolvió el servidor al crear el pedido
+   *  (`precios_cambiaron`). `vigenteEft` null = ya no está a la venta → se quita. */
+  actualizarPrecios: (cambios: PrecioVigente[]) => void;
   /** Indica si el carrito terminó de hidratarse desde localStorage. */
   hidratado: boolean;
 };
@@ -182,6 +188,18 @@ export function CartProvider({ children }: { children: ReactNode }) {
     setItems([]);
   }, []);
 
+  const actualizarPrecios = useCallback((cambios: PrecioVigente[]) => {
+    const porSku = new Map(cambios.map((c) => [c.sku, c]));
+    setItems((prev) =>
+      prev.flatMap((it) => {
+        const c = porSku.get(it.sku);
+        if (!c) return [it];
+        if (c.vigenteEft == null) return [];
+        return [{ ...it, precioUnit: c.vigenteEft, precioUnitTn: c.vigenteTn ?? it.precioUnitTn }];
+      }),
+    );
+  }, []);
+
   const value = useMemo<CartContextValue>(
     () => ({
       items,
@@ -192,9 +210,10 @@ export function CartProvider({ children }: { children: ReactNode }) {
       cambiarCantidad,
       eliminar,
       vaciar,
+      actualizarPrecios,
       hidratado,
     }),
-    [items, agregar, cambiarCantidad, eliminar, vaciar, hidratado],
+    [items, agregar, cambiarCantidad, eliminar, vaciar, actualizarPrecios, hidratado],
   );
 
   return <CartContext.Provider value={value}>{children}</CartContext.Provider>;

@@ -17,7 +17,7 @@
  */
 
 import { NextRequest, NextResponse } from "next/server";
-import { obtenerPayment, validarFirmaWebhook } from "@/lib/mp";
+import { enviarPagoAlBackend, obtenerPayment, validarFirmaWebhook } from "@/lib/mp";
 import { checkRateLimit, getClientIp } from "@/lib/ratelimit";
 
 export const runtime = "nodejs";
@@ -47,7 +47,13 @@ export async function POST(req: NextRequest) {
   }
 
   // Parsear body para extraer data.id
-  let body: { type?: string; action?: string; data?: { id?: string | number } } = {};
+  let body: {
+    type?: string;
+    topic?: string;
+    action?: string;
+    // Contracargos / reclamos traen el id del pago aparte del id del evento.
+    data?: { id?: string | number; payment_id?: string | number; resource?: { payment_id?: string | number } };
+  } = {};
   try {
     body = await req.json();
   } catch {
@@ -69,10 +75,16 @@ export async function POST(req: NextRequest) {
     return NextResponse.json({ ok: false, error: "firma_invalida" }, { status: 401 });
   }
 
-  // Solo procesamos eventos de payment (ignoramos refunds, claims, etc por ahora)
-  const tipo = body.type || "";
+  // Eventos de pago. Los contracargos y los reclamos llegan como tópicos PROPIOS
+  // (no "payment"): antes se descartaban y un contracargo nunca llegaba al backend.
+  // Se saca el id del pago y se procesa igual: el estado del pago dice
+  // charged_back / in_mediation.
+  const tipo = String(body.type || body.topic || "");
+  let paymentId = dataId;
   if (tipo && tipo !== "payment") {
-    return ok();
+    const pid = body?.data?.payment_id ?? body?.data?.resource?.payment_id;
+    if (/chargeback|claim/i.test(tipo) && pid) paymentId = String(pid);
+    else return ok();
   }
 
   // Consultar detalle del pago con POLLING.
@@ -92,7 +104,7 @@ export async function POST(req: NextRequest) {
   for (const wait of BACKOFF_MS) {
     if (wait > 0) await new Promise((r) => setTimeout(r, wait));
     intento += 1;
-    pago = await obtenerPayment(dataId);
+    pago = await obtenerPayment(paymentId);
     if (!pago) {
       console.error("[mp/webhook] no se pudo obtener detalle del pago", { dataId, intento });
       continue;
@@ -113,72 +125,20 @@ export async function POST(req: NextRequest) {
   // para registrar el evento en _LogsMP (auditoría). El Apps Script no inserta
   // fila en Ventas si status !== 'approved', solo loggea.
 
-  // Derivar a Apps Script para registrar la venta
-  const appsScriptUrl = process.env.NEXT_PUBLIC_APP_SCRIPT_URL || "";
-  const apiToken = process.env.APP_SCRIPT_API_TOKEN || "";
-  if (!appsScriptUrl || !apiToken) {
-    console.error("[mp/webhook] falta APPS_SCRIPT_URL o APP_SCRIPT_API_TOKEN");
-    return NextResponse.json({ ok: false, error: "backend_no_configurado" }, { status: 500 });
-  }
-
-  // CRÍTICO (Addendum 88): mandar a Apps Script por GET con el pago en el
-  // query param `payload`, NO por POST con body. Apps Script responde con un
-  // redirect 302 interno; Node fetch, al seguirlo, convierte el POST en GET y
-  // DESCARTA el body → el webhook llegaba sin el pago y nunca registraba la
-  // venta. El query param sobrevive el redirect. Mandamos un pago "slim" con
-  // solo los campos que el backend necesita, para no exceder el largo de URL.
-  const pagoSlim = {
-    id: pago.id,
-    status: pago.status,
-    status_detail: pago.status_detail,
-    transaction_amount: pago.transaction_amount,
-    net_amount: pago.net_amount,
-    fee_details: (pago.fee_details || []).map((f) => ({ amount: f.amount })),
-    payment_type_id: pago.payment_type_id,
-    payment_method_id: pago.payment_method_id,
-    installments: pago.installments,
-    date_approved: pago.date_approved,
-    external_reference: pago.external_reference,
-    payer: pago.payer
-      ? {
-          email: pago.payer.email,
-          first_name: pago.payer.first_name,
-          last_name: pago.payer.last_name,
-        }
-      : undefined,
-    additional_info: {
-      items: (pago.additional_info?.items || []).map((it) => ({
-        id: it.id,
-        title: it.title,
-        quantity: it.quantity,
-        unit_price: it.unit_price,
-      })),
-    },
-  };
-  const payloadEnc = encodeURIComponent(JSON.stringify(pagoSlim));
-  const tokenEnc = encodeURIComponent(apiToken);
-  try {
-    const r = await fetch(
-      `${appsScriptUrl}?api=mp_webhook&token=${tokenEnc}&payload=${payloadEnc}`,
-      {
-        method: "GET",
-        redirect: "follow",
-        cache: "no-store",
-      },
-    );
-    if (!r.ok) {
-      console.error("[mp/webhook] Apps Script respondió", r.status);
-      return NextResponse.json({ ok: false, error: "apps_script_error" }, { status: 502 });
-    }
-    // Leer la respuesta para detectar fallos lógicos (token/registro).
-    const txt = await r.text().catch(() => "");
-    if (txt.includes("unauthorized")) {
-      console.error("[mp/webhook] Apps Script rechazó el token");
-      return NextResponse.json({ ok: false, error: "apps_script_unauthorized" }, { status: 502 });
-    }
-  } catch (err) {
-    console.error("[mp/webhook] Apps Script fetch falló", err);
-    return NextResponse.json({ ok: false, error: "apps_script_unreachable" }, { status: 502 });
+  // Derivar al backend para registrar la venta. CRÍTICO (Addendum 88): por GET con
+  // el pago en la URL (el redirect 302 de Apps Script descarta el body de un POST).
+  // Apps Script SIEMPRE responde HTTP 200, así que antes un error de registro (lock
+  // ocupado, excepción) salía como éxito: MP daba la notificación por entregada, no
+  // reintentaba, y la venta se perdía. Ahora, si el backend no responde ok:true, se
+  // le devuelve 500 a MP para que vuelva a avisar (el registro es idempotente).
+  const env = await enviarPagoAlBackend(pago);
+  if (!env.ok) {
+    console.error("[mp/webhook] el backend no registró el pago — MP va a reintentar", {
+      paymentId,
+      status: pago.status,
+      error: env.error,
+    });
+    return NextResponse.json({ ok: false, error: "registro_fallido" }, { status: 500 });
   }
 
   return ok();

@@ -31,7 +31,8 @@ export type MPPayment = {
   installments?: number;
   transaction_amount?: number;
   net_amount?: number;
-  fee_details?: Array<{ type?: string; amount?: number }>;
+  fee_details?: Array<{ type?: string; amount?: number; fee_payer?: string }>;
+  transaction_details?: { net_received_amount?: number; total_paid_amount?: number };
   date_created?: string;
   date_approved?: string | null;
   external_reference?: string;
@@ -137,6 +138,9 @@ export async function crearPreference(input: PreferenceInput): Promise<Preferenc
     payment_methods: {
       installments: input.cuotasSinInteres ?? 3,
       default_installments: 1,
+      // Sin efectivo (Rapipago / Pago Fácil), igual que el Brick: el que quiere
+      // pagar en efectivo usa "Transferencia o efectivo" (precio de contado).
+      excluded_payment_types: [{ id: "ticket" }],
     },
   };
 
@@ -247,7 +251,10 @@ export async function procesarPago(input: ProcessPaymentInput): Promise<Procesar
     // Combinamos external_reference (único por preference) + prefijo del
     // token (único por intento) → estable dentro del mismo dispatch pero
     // distinto entre reintentos con tarjeta nueva.
-    const idempotencyKey = `${input.external_reference}-${input.token.slice(0, 16)}`;
+    // Token ENTERO: la referencia ahora es fija por pedido (`pw:<id>`), y con solo
+    // un prefijo del token un reintento con otra tarjeta podía recibir la respuesta
+    // cacheada del primer intento. Sigue siendo estable ante el doble dispatch.
+    const idempotencyKey = `${input.external_reference}-${input.token}`;
     const r = await fetch(`${MP_BASE}/v1/payments`, {
       method: "POST",
       headers: {
@@ -321,4 +328,79 @@ export async function validarFirmaWebhook(opts: {
     .join("");
 
   return sigHex === v1.toLowerCase();
+}
+
+/**
+ * Lo que el backend necesita de un pago, en un objeto chico: viaja en la URL
+ * (el redirect 302 de Apps Script descarta el body de un POST).
+ */
+export function pagoParaBackend(pago: MPPayment) {
+  const esPedido = String(pago.external_reference || "").startsWith("pw:");
+  return {
+    id: pago.id,
+    status: pago.status,
+    status_detail: pago.status_detail,
+    transaction_amount: pago.transaction_amount,
+    // `fee_payer`: el `financing_fee` de las cuotas con interés lo paga el
+    // comprador y NO es comisión de la tienda. `net_received_amount`: lo que le
+    // llega a la tienda (la forma más fiel de calcular la comisión).
+    fee_details: (pago.fee_details || []).map((f) => ({ amount: f.amount, type: f.type, fee_payer: f.fee_payer })),
+    net_received_amount: pago.transaction_details?.net_received_amount,
+    payment_type_id: pago.payment_type_id,
+    payment_method_id: pago.payment_method_id,
+    installments: pago.installments,
+    date_approved: pago.date_approved,
+    external_reference: pago.external_reference,
+    payer: pago.payer
+      ? { email: pago.payer.email, first_name: pago.payer.first_name, last_name: pago.payer.last_name }
+      : undefined,
+    // Los pagos de un pedido toman los ítems del PEDIDO: no hace falta mandarlos y
+    // la URL queda corta (un payload truncado se perdía en silencio).
+    additional_info: esPedido
+      ? undefined
+      : {
+          items: (pago.additional_info?.items || []).map((it) => ({
+            id: it.id,
+            title: it.title,
+            quantity: it.quantity,
+            unit_price: it.unit_price,
+          })),
+        },
+  };
+}
+
+/**
+ * Manda un pago al backend para que lo registre. Lo usan el webhook,
+ * process-payment y /api/mp/confirmar: el registro es idempotente, así que
+ * mandarlo más de una vez no duplica nada, y si el aviso de MP no llega (token
+ * rotado, Vercel caído, MP que no reintenta a tiempo) la venta igual entra.
+ * `ok` = el backend respondió ok:true. Apps Script SIEMPRE contesta HTTP 200, así
+ * que hay que leer la respuesta.
+ */
+export async function enviarPagoAlBackend(
+  pago: MPPayment,
+): Promise<{ ok: boolean; error?: string }> {
+  const base = process.env.NEXT_PUBLIC_APP_SCRIPT_URL || "";
+  const token = process.env.APP_SCRIPT_API_TOKEN || "";
+  if (!base || !token) return { ok: false, error: "backend_no_configurado" };
+  const payload = encodeURIComponent(JSON.stringify(pagoParaBackend(pago)));
+  try {
+    const r = await fetch(
+      `${base}?api=mp_webhook&token=${encodeURIComponent(token)}&payload=${payload}`,
+      { method: "GET", redirect: "follow", cache: "no-store", signal: AbortSignal.timeout(25000) },
+    );
+    const txt = await r.text().catch(() => "");
+    if (!r.ok) return { ok: false, error: `http_${r.status}` };
+    if (txt.includes("unauthorized")) return { ok: false, error: "unauthorized" };
+    let resp: { ok?: boolean; error?: string } | null = null;
+    try {
+      resp = JSON.parse(txt);
+    } catch {
+      resp = null;
+    }
+    if (!resp || resp.ok !== true) return { ok: false, error: resp?.error || txt.slice(0, 200) };
+    return { ok: true };
+  } catch (err) {
+    return { ok: false, error: err instanceof Error ? err.message : String(err) };
+  }
 }

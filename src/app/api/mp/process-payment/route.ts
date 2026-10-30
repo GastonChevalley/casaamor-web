@@ -23,8 +23,8 @@
  * la venta en Apps Script — este endpoint solo le dice al cliente cómo fue.
  */
 
-import { NextRequest, NextResponse } from "next/server";
-import { procesarPago, type ProcessPaymentInput } from "@/lib/mp";
+import { NextRequest, NextResponse, after } from "next/server";
+import { enviarPagoAlBackend, obtenerPayment, procesarPago, type ProcessPaymentInput } from "@/lib/mp";
 import { checkRateLimit, getClientIp, rateLimitHeaders } from "@/lib/ratelimit";
 
 export const runtime = "nodejs";
@@ -107,6 +107,15 @@ export async function POST(req: NextRequest) {
       { status: 400 },
     );
   }
+  // Todo pago es de un pedido (`pw:<id>`): el pedido reservó el stock y el backend
+  // valida el monto contra él. Sin pedido (pestaña abierta antes de actualizar el
+  // sitio, o un request armado) no se cobra.
+  if (!String(body.externalReference).startsWith("pw:")) {
+    return NextResponse.json(
+      { ok: false, error: "recargar", message: "Actualizamos el sitio: recargá la página e intentá de nuevo." },
+      { status: 409 },
+    );
+  }
 
   // Mapear items del carrito al formato additional_info.items que espera MP.
   // CRÍTICO para que el webhook pueda matchear SKU contra Productos.
@@ -179,6 +188,18 @@ export async function POST(req: NextRequest) {
   }
 
   const pago = resultado.payment;
+  // Redundancia: además del aviso de MP, mandarle el pago al backend ya. Si el
+  // webhook falla (token rotado, Vercel caído) y MP tarda en reintentar (15 min,
+  // 30 min, 6 h...), el pedido vencía a la hora y el pago aprobado quedaba
+  // invisible. Va en `after`: no demora la respuesta al cliente. Se vuelve a pedir
+  // el pago a MP para mandar la versión completa (comisiones incluidas).
+  if (pago.status === "approved" || pago.status === "in_process" || pago.status === "pending") {
+    after(async () => {
+      const completo = (await obtenerPayment(pago.id)) || pago;
+      const env = await enviarPagoAlBackend(completo);
+      if (!env.ok) console.error("[mp/process-payment] no se pudo reenviar el pago al backend", { id: pago.id, error: env.error });
+    });
+  }
   return NextResponse.json(
     {
       ok: true,

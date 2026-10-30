@@ -42,12 +42,36 @@ function PageShell({
   );
 }
 
-export function CheckoutExitoClient({ paymentId }: { paymentId: string }) {
+/**
+ * Le pide al servidor que confirme el pago con MP y se lo mande al backend: la
+ * redundancia del aviso de MP (sobre todo para la billetera, que no pasa por
+ * process-payment). Idempotente: si la venta ya entró, no hace nada.
+ */
+function confirmarPagoEnServidor(paymentId: string) {
+  fetch("/api/mp/confirmar", {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ paymentId }),
+    keepalive: true,
+  }).catch(() => {
+    /* best-effort: el aviso de MP sigue siendo el camino principal */
+  });
+}
+
+export function CheckoutExitoClient({ paymentId, pedidoId }: { paymentId: string; pedidoId?: string }) {
   const { vaciar } = useCart();
   useEffect(() => {
     // Solo limpiar el carrito si el éxito viene con un payment_id real (no acceso directo).
     if (paymentId) {
       vaciar();
+      // El pedido de MP ya está pago: que un checkout nuevo no lo reuse.
+      try {
+        sessionStorage.removeItem("pw_idem");
+        localStorage.removeItem("pw_mp_pedido");
+      } catch {
+        /* storage no disponible */
+      }
+      confirmarPagoEnServidor(paymentId);
       trackEvent("purchase", { payment_id: paymentId });
     }
     // eslint-disable-next-line react-hooks/exhaustive-deps
@@ -58,11 +82,16 @@ export function CheckoutExitoClient({ paymentId }: { paymentId: string }) {
       iconColor="bg-emerald-700"
       Icon={CheckCircle2}
       title="¡Listo! Pago confirmado"
-      subtitle="Tu pago se acreditó correctamente. Te enviamos un email con el detalle de la compra y los pasos para recibir o retirar tus productos."
+      subtitle="Tu pago se acreditó correctamente. Te enviamos un email con el detalle de la compra, y te escribimos para coordinar la entrega."
     >
+      {pedidoId && (
+        <p className="text-sm text-ink/70 mb-1">
+          Tu pedido: <strong className="font-mono">{pedidoId}</strong>
+        </p>
+      )}
       {paymentId && (
         <p className="text-xs text-ink/50 mb-6">
-          Número de operación: <code className="font-mono">{paymentId}</code>
+          Número de operación de Mercado Pago: <code className="font-mono">{paymentId}</code>
         </p>
       )}
       <div className="flex flex-col sm:flex-row gap-3 justify-center">
@@ -85,6 +114,8 @@ export function CheckoutExitoClient({ paymentId }: { paymentId: string }) {
 
 export function CheckoutPendienteClient({ paymentId }: { paymentId: string }) {
   useEffect(() => {
+    // Pago en revisión: avisarle al backend ya, así extiende la reserva del stock.
+    if (paymentId) confirmarPagoEnServidor(paymentId);
     if (paymentId) trackEvent("purchase_pending", { payment_id: paymentId });
   }, [paymentId]);
 

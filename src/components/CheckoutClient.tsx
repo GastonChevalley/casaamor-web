@@ -6,8 +6,9 @@ import { useRouter } from "next/navigation";
 import { ArrowLeft, ShoppingBag, Loader2 } from "lucide-react";
 import { initMercadoPago, Payment } from "@mercadopago/sdk-react";
 import type { ConfigWeb } from "@/lib/api";
-import { useCart } from "@/contexts/CartContext";
+import { useCart, type PrecioVigente } from "@/contexts/CartContext";
 import { fmtMonto, calcularPaqueteCarrito } from "@/lib/cart";
+import { ENVIO_CORREO_HABILITADO } from "@/lib/envio-config";
 import { trackEvent } from "@/lib/analytics";
 
 type OpcionEnvioRemota = {
@@ -28,7 +29,6 @@ const MP_ENABLED = MP_PUBLIC_KEY.length > 0;
 // al estimador local si faltara alguna credencial). Requiere en Vercel las env
 // vars MCN_API_USER / MCN_API_PASSWORD / MCN_CUSTOMER_ID (ver
 // @/lib/correo-argentino). Poner en `false` vuelve a "Envío a convenir" por WhatsApp.
-const ENVIO_CORREO_HABILITADO = true;
 
 // Inicializar SDK MP una sola vez en el cliente. initMercadoPago es no-op si
 // la key está vacía — defensa en profundidad para no romper si falta env var.
@@ -92,10 +92,43 @@ function pwClearIdempotency() {
     /* ignore */
   }
 }
+/**
+ * Último pedido de Mercado Pago de este navegador + su clave. Si el cliente vuelve
+ * a "Continuar al pago" con otro carrito, envío o datos, el backend libera ese
+ * pedido antes de reservar de nuevo (si no, con la última unidad no podía volver
+ * a comprarla). La CLAVE es la prueba de que es el mismo cliente (aleatoria, solo
+ * la tiene este navegador): con solo el email, cualquiera podía cancelarle el
+ * pedido a otro. En localStorage para que sobreviva a cerrar la pestaña.
+ */
+function pwMpPedidoPrevio(): { id: string; clave: string } {
+  try {
+    const o = JSON.parse(localStorage.getItem("pw_mp_pedido") || "{}") as { id?: string; clave?: string };
+    return { id: String(o.id || ""), clave: String(o.clave || "") };
+  } catch {
+    return { id: "", clave: "" };
+  }
+}
+function pwGuardarMpPedido(id: string, clave: string) {
+  try {
+    localStorage.setItem("pw_mp_pedido", JSON.stringify({ id, clave }));
+  } catch {
+    /* ignore */
+  }
+}
+function pwOlvidarMpPedido() {
+  try {
+    localStorage.removeItem("pw_mp_pedido");
+  } catch {
+    /* ignore */
+  }
+}
+
+/** Ítem del pedido tal como lo devuelve el backend (precios ya validados). */
+type ItemPedido = { sku: string; nombre: string; cantidad: number; precioUnit: number; variante?: string };
 
 export function CheckoutClient({ config }: { config: ConfigWeb }) {
   const router = useRouter();
-  const { items, total, totalTn, cantidad, hidratado, vaciar, cambiarCantidad } = useCart();
+  const { items, total, totalTn, cantidad, hidratado, vaciar, cambiarCantidad, actualizarPrecios } = useCart();
 
   const [form, setForm] = useState({
     nombre: "",
@@ -133,6 +166,10 @@ export function CheckoutClient({ config }: { config: ConfigWeb }) {
   // → siguiente "Pagar" devuelve 400 "Card Token not found". Congelar el monto
   // acá garantiza identidad estable mientras el Brick está montado.
   const [amountSnapshot, setAmountSnapshot] = useState<number | null>(null);
+  // Envío del pedido de MP (lo que fijó el servidor). Con el pago abierto, el
+  // resumen muestra Subtotal / Envío / Total del PEDIDO, así las tres líneas suman
+  // y son lo que se cobra (no lo que recalcula el navegador).
+  const [envioPedidoMP, setEnvioPedidoMP] = useState(0);
   const [brickListo, setBrickListo] = useState(false);
   const brickContainerRef = useRef<HTMLDivElement | null>(null);
   // Lock para prevenir doble-submit del Brick. Si el usuario apreta "Pagar" 2
@@ -196,6 +233,13 @@ export function CheckoutClient({ config }: { config: ConfigWeb }) {
   }>({ domicilio: null, sucursal: null });
   const [cargandoCotizacion, setCargandoCotizacion] = useState(false);
   const [errorCotizacion, setErrorCotizacion] = useState<string | null>(null);
+  // La cotización salió del estimador local (la API de Correo no respondió).
+  // Suele dar menos que la tarifa real: se avisa al cliente y queda marcado en
+  // el pedido para la dueña. Antes la ruta lo devolvía y nadie lo leía.
+  const [cotizacionEstimada, setCotizacionEstimada] = useState(false);
+  // Sube para volver a cotizar sin que cambie nada (botón "Reintentar", o el
+  // servidor avisó que el envío cambió).
+  const [reintentoCotizacion, setReintentoCotizacion] = useState(0);
 
   // Asegurar SDK MP inicializado del lado cliente
   useEffect(() => {
@@ -236,16 +280,27 @@ export function CheckoutClient({ config }: { config: ConfigWeb }) {
     }
   }, [preferenceId]);
 
+  // ¿Están cargados el alias o el CBU? Si NO, el mail al cliente sale SIN datos
+  // para transferir, así que la transferencia se coordina por WhatsApp: es la red
+  // para no perder la venta. Con los datos cargados, el pedido se confirma y los
+  // datos le llegan por mail. (Al cargarlos en la app, la web se actualiza sola.)
+  const hayDatosTransferencia = !!(
+    String(config.transferencia_alias || "").trim() || String(config.transferencia_cbu || "").trim()
+  );
+
   // Solo mostrar opción dual cuando hay diferencia real >= 1% entre TN y EFT.
   const muestraDualPago = totalTn > total * 1.01;
 
   // Si el carrito queda vacío (eliminados todos los items mientras está en /checkout),
   // redirigir suavemente al catálogo.
+  // No si hay un aviso en pantalla (ej. "se agotó" vació el carrito: el cliente
+  // tiene que leerlo) ni con el pago de MP abierto (otra pestaña vació el carrito).
   useEffect(() => {
-    if (hidratado && items.length === 0 && !pedidoOk) {
+    const pagoAbierto = form.metodoPago === "mp" && !!preferenceId;
+    if (hidratado && items.length === 0 && !pedidoOk && !error && !pagoAbierto) {
       router.replace("/productos");
     }
-  }, [hidratado, items.length, router, pedidoOk]);
+  }, [hidratado, items.length, router, pedidoOk, error, form.metodoPago, preferenceId]);
 
   // Trackear inicio del checkout.
   useEffect(() => {
@@ -283,20 +338,26 @@ export function CheckoutClient({ config }: { config: ConfigWeb }) {
   }, [total, totalTn, form.metodoPago, costoEnvio]);
 
   // Cotizar envío Correo Argentino con debounce — se dispara cuando el CP es
-  // válido (4-5 dígitos) y el método de envío es domicilio/sucursal. Reusa
-  // cotización entre cambios de "domicilio" y "sucursal" porque el endpoint
-  // devuelve ambas en una sola llamada.
+  // válido (4-5 dígitos) y el envío NO es retiro en el local. El endpoint
+  // devuelve domicilio y sucursal en una sola llamada, así que cambiar entre esas
+  // dos no vuelve a cotizar (por eso depende de `necesitaCotizar` y no de
+  // `form.envio`).
+  const necesitaCotizar = form.envio !== "showroom";
   useEffect(() => {
     if (!ENVIO_CORREO_HABILITADO) return;  // envío a convenir → no se cotiza con Correo
-    if (form.envio === "showroom") {
-      setCotizacion({ domicilio: null, sucursal: null });
+    // Limpiar SIEMPRE la cotización anterior: si cambió el CP o el carrito, el
+    // precio viejo ya no vale. Antes quedaba vivo durante el debounce + la red, y
+    // si el cliente confirmaba en esa ventana el pedido salía con el envío de otro
+    // CP o de otro paquete.
+    setCotizacion({ domicilio: null, sucursal: null });
+    setCotizacionEstimada(false);
+    if (!necesitaCotizar) {
       setErrorCotizacion(null);
       setCargandoCotizacion(false);
       return;
     }
     const cp = (form.codigoPostal || "").trim();
     if (!/^\d{4,5}$/.test(cp) || items.length === 0) {
-      setCotizacion({ domicilio: null, sucursal: null });
       setErrorCotizacion(null);
       setCargandoCotizacion(false);
       return;
@@ -329,9 +390,10 @@ export function CheckoutClient({ config }: { config: ConfigWeb }) {
           domicilio: ops.find((o) => o.tipo === "domicilio") || null,
           sucursal: ops.find((o) => o.tipo === "sucursal") || null,
         });
+        setCotizacionEstimada(data?.esEstimado === true);
         setCargandoCotizacion(false);
       } catch (err) {
-        if ((err as { name?: string })?.name === "AbortError") return;
+        if ((err as { name?: string })?.name === "AbortError" || ctrl.signal.aborted) return;
         setErrorCotizacion(
           err instanceof Error ? err.message : "No pudimos cotizar el envío.",
         );
@@ -343,7 +405,27 @@ export function CheckoutClient({ config }: { config: ConfigWeb }) {
       clearTimeout(timer);
       ctrl.abort();
     };
-  }, [form.codigoPostal, form.envio, items]);
+  }, [form.codigoPostal, necesitaCotizar, items, reintentoCotizacion]);
+
+  // ¿Se puede confirmar? Con envío por Correo hace falta la cotización: antes se
+  // podía confirmar mientras cotizaba (o con la cotización fallida) y el pedido
+  // salía con envío $0, que terminaba pagando la tienda.
+  const envioListo =
+    form.envio === "showroom" || !ENVIO_CORREO_HABILITADO || (!cargandoCotizacion && costoEnvio > 0);
+  const motivoEnvio = envioListo
+    ? null
+    : cargandoCotizacion
+      ? "Esperá un segundo: estamos cotizando el envío."
+      : errorCotizacion
+        ? "No pudimos cotizar el envío. Revisá el código postal o elegí retiro en el local."
+        : !/^\d{4,5}$/.test((form.codigoPostal || "").trim())
+          ? "Ingresá tu código postal para cotizar el envío."
+          : "No hay costo de envío para esta opción. Probá con la otra, o con retiro en el local.";
+  // Con el pago de MP abierto, los datos y la entrega quedan bloqueados: el
+  // pedido ya se creó con esos datos (dirección, envío) y el monto ya está fijado.
+  // Antes se podía cambiar el CP con el pago abierto: el resumen mostraba un total
+  // y se cobraba otro, y el pedido quedaba con la dirección vieja.
+  const brickMontado = form.metodoPago === "mp" && !!preferenceId;
 
   // Sincronizar submitDataRef con los valores actuales — corre en cada render
   // pero solo TOCA el ref (no dispara re-render). El callback onBrickSubmit
@@ -358,12 +440,14 @@ export function CheckoutClient({ config }: { config: ConfigWeb }) {
       // cobrar un monto distinto al que vio el Brick → inconsistencia.
       totalConEnvio: amountSnapshot ?? totalConEnvio,
       itemsLength: items.length,
-      // Snapshot del carrito para que el webhook tenga el detalle de SKUs.
+      // Snapshot del carrito para el detalle del pago en MP. Precio de TARJETA:
+      // antes mandaba el de efectivo y el mail decía "recibimos tu pago de $X"
+      // con un monto menor al cobrado. (La venta ya no sale de acá: sale del pedido.)
       cartItems: items.map((it) => ({
         sku: it.sku,
         nombre: it.nombre,
         cantidad: it.cantidad,
-        precioUnit: it.precioUnit,
+        precioUnit: it.precioUnitTn || it.precioUnit,
         variante: it.variante,
       })),
     };
@@ -581,7 +665,7 @@ export function CheckoutClient({ config }: { config: ConfigWeb }) {
 
       // Redirigir a la página de resultado correspondiente
       if (status === "approved") {
-        router.push(`/checkout/exito?payment_id=${paymentId}`);
+        router.push(`/checkout/exito?payment_id=${paymentId}&pedido=${encodeURIComponent(String(snap.externalRefSnapshot || "").replace(/^pw:/, ""))}`);
       } else if (status === "in_process" || status === "pending") {
         router.push(`/checkout/pendiente?payment_id=${paymentId}`);
       } else {
@@ -639,6 +723,133 @@ export function CheckoutClient({ config }: { config: ConfigWeb }) {
     setForm((prev) => ({ ...prev, [key]: valor }));
   }
 
+  /**
+   * Firma del pedido para la clave idempotente: si cambia algo que cambia el
+   * pedido (carrito, precios, método, entrega, dirección o envío), es otro pedido.
+   * Antes miraba solo sku:cantidad + email: cambiar el CP y reintentar devolvía el
+   * pedido viejo, con el envío viejo.
+   */
+  function firmaPedido(metodo: "transferencia" | "mp"): string {
+    return [
+      items
+        .map((i) => `${i.sku}:${i.cantidad}:${metodo === "mp" ? i.precioUnitTn || i.precioUnit : i.precioUnit}`)
+        .join("|"),
+      form.email.trim().toLowerCase(),
+      // Nombre, teléfono y notas también: "Editar datos" invita a corregirlos, y con
+      // la misma clave el servidor devolvía el pedido viejo con los datos viejos.
+      form.nombre.trim(),
+      form.telefono.trim(),
+      form.notas.trim(),
+      metodo,
+      form.envio,
+      form.envio === "showroom" ? "" : `${form.direccion}|${form.ciudad}|${form.codigoPostal}`.trim(),
+      costoEnvio,
+    ].join("#");
+  }
+
+  /** Cuerpo de /api/pedidos/crear, igual para los dos medios de pago. */
+  function cuerpoPedido(metodo: "transferencia" | "mp", idempotencyKey: string) {
+    return {
+      cliente: { nombre: form.nombre, email: form.email, telefono: form.telefono },
+      items: items.map((it) => ({
+        sku: it.sku,
+        nombre: it.nombre,
+        cantidad: it.cantidad,
+        // El precio DEL MÉTODO: el backend lo valida contra Productos.
+        precioUnit: metodo === "mp" ? it.precioUnitTn || it.precioUnit : it.precioUnit,
+        variante: it.variante,
+      })),
+      envioCosto: costoEnvio,
+      // Peso y medidas con los que se cotizó el envío. Se guardan con el pedido
+      // para que la dueña cargue lo mismo en MiCorreo y el costo real coincida
+      // con lo que pagó el cliente.
+      paquete: calcularPaqueteCarrito(items),
+      entrega: form.envio,
+      entregaDetalle:
+        form.envio === "showroom" ? "" : `${form.direccion}, ${form.ciudad}, CP ${form.codigoPostal}`,
+      notas: form.notas,
+      idempotencyKey,
+      metodoPago: metodo,
+      reemplazaPedidoId: pwMpPedidoPrevio().id,
+      reemplazaClave: pwMpPedidoPrevio().clave,
+      // El servidor re-cotiza el envío con este CP y el paquete: no se confía en el
+      // costo que manda el navegador.
+      envioCp: form.envio === "showroom" ? "" : form.codigoPostal.trim(),
+      envioEstimado: cotizacionEstimada && form.envio !== "showroom",
+    };
+  }
+
+  /**
+   * Rechazos del backend que el cliente puede resolver: se le explica qué pasó y
+   * se corrige el carrito. Devuelve true si lo manejó. (Sin esto, cualquier
+   * rechazo caía en "coordinemos por WhatsApp" sin registrar el pedido.)
+   */
+  function manejarRechazoPedido(data: { error?: string; faltantes?: unknown; cambios?: unknown }): boolean {
+    if (!data) return false;
+    // Stock insuficiente: NO mandar a WhatsApp a ciegas (así se sobrevendió una
+    // vez: el backend rechazó el pedido, la clienta coordinó igual por WhatsApp y
+    // la dueña nunca supo que no había stock).
+    if (data?.error === "stock_insuficiente" && Array.isArray(data.faltantes)) {
+      trackEvent("checkout_stock_insuficiente", { total });
+      const detalles: string[] = [];
+      for (const f of data.faltantes as Array<{ sku: string; disponible: number }>) {
+        const disp = Math.max(0, Number(f.disponible) || 0);
+        for (const it of items.filter((i) => i.sku === f.sku)) {
+          detalles.push(
+            disp === 0 ? `${it.nombre}: se agotó` : `${it.nombre}: queda ${disp} (pediste ${it.cantidad})`,
+          );
+          cambiarCantidad(it.lineId, disp);
+        }
+      }
+      setError(
+        `Se quedó sin stock mientras comprabas — ${detalles.join("; ")}. ` +
+          `Ya ajustamos tu carrito: revisalo y confirmá de nuevo.`,
+      );
+      window.scrollTo(0, 0);
+      return true;
+    }
+    // El precio cambió desde que se armó el carrito (carrito viejo guardado,
+    // aumento reciente, oferta terminada).
+    if (data?.error === "precios_cambiaron" && Array.isArray(data.cambios)) {
+      const cambios = data.cambios as PrecioVigente[];
+      const fuera = cambios
+        .filter((c) => c.vigenteEft == null)
+        .map((c) => items.find((i) => i.sku === c.sku)?.nombre || c.sku);
+      actualizarPrecios(cambios);
+      trackEvent("checkout_precios_cambiaron", { cantidad: cambios.length });
+      setError(
+        "Cambiaron los precios de algunos productos desde que los agregaste" +
+          (fuera.length ? ` y ${fuera.join(", ")} ya no está${fuera.length > 1 ? "n" : ""} a la venta` : "") +
+          ". Ya actualizamos tu carrito: revisá el total y confirmá de nuevo.",
+      );
+      window.scrollTo(0, 0);
+      return true;
+    }
+    if (data?.error === "falta_envio") {
+      setError("Todavía no tenemos el costo del envío. Revisá el código postal y esperá a que cotice.");
+      return true;
+    }
+    // El servidor re-cotizó y el envío sale más: se vuelve a cotizar en pantalla
+    // para que el cliente vea el precio nuevo y confirme.
+    if (data?.error === "envio_cambio") {
+      setReintentoCotizacion((n) => n + 1);
+      setError("El costo del envío se actualizó. Revisá el total y confirmá de nuevo.");
+      return true;
+    }
+    if (data?.error === "pago_en_revision") {
+      setError(
+        "Tu pago anterior está en revisión en Mercado Pago (puede tardar hasta 48 h). " +
+          "Te avisamos por mail en cuanto se apruebe: no hace falta pagar de nuevo.",
+      );
+      return true;
+    }
+    if (data?.error === "recargar") {
+      setError("Actualizamos el sitio: recargá la página e intentá de nuevo.");
+      return true;
+    }
+    return false;
+  }
+
   function validar(): string | null {
     if (!form.nombre.trim()) return "Ingresá tu nombre.";
     if (!/^[^@\s]+@[^@\s]+\.[^@\s]+$/.test(form.email.trim())) return "Email inválido.";
@@ -652,8 +863,10 @@ export function CheckoutClient({ config }: { config: ConfigWeb }) {
 
   async function onSubmit(e: React.FormEvent) {
     e.preventDefault();
+    // Con el pago de MP abierto el único submit es el botón "Pagar" del Brick.
+    if (form.metodoPago === "mp" && preferenceId) return;
     setError(null);
-    const err = validar();
+    const err = validar() || motivoEnvio;
     if (err) {
       setError(err);
       return;
@@ -715,73 +928,36 @@ export function CheckoutClient({ config }: { config: ConfigWeb }) {
 
       // Crear el pedido en el backend: lo registra como "pendiente de pago",
       // RESERVA el stock y manda el email con los datos para transferir. La clave
-      // idempotente se deriva del carrito para no duplicar el pedido en reintentos.
-      const cartSig = items.map((i) => `${i.sku}:${i.cantidad}`).join("|") + "|" + form.email;
-      const idempotencyKey = pwIdempotencyKey(cartSig);
-      const entregaDetalle =
-        form.envio === "showroom"
-          ? ""
-          : `${form.direccion}, ${form.ciudad}, CP ${form.codigoPostal}`;
+      // idempotente se deriva del pedido para no duplicarlo en reintentos.
+      const idempotencyKey = pwIdempotencyKey(firmaPedido("transferencia"));
       try {
         const r = await fetch("/api/pedidos/crear", {
           method: "POST",
           headers: { "Content-Type": "application/json" },
-          body: JSON.stringify({
-            cliente: { nombre: form.nombre, email: form.email, telefono: form.telefono },
-            items: items.map((it) => ({
-              sku: it.sku,
-              nombre: it.nombre,
-              cantidad: it.cantidad,
-              precioUnit: it.precioUnit,
-              variante: it.variante,
-            })),
-            total,
-            envioCosto: costoEnvio,
-            // Peso y medidas con los que se cotizó el envío. Se guardan con el
-            // pedido para que la dueña cargue lo mismo en MiCorreo y el costo
-            // real coincida con lo que pagó el cliente.
-            paquete: calcularPaqueteCarrito(items),
-            entrega: form.envio,
-            entregaDetalle,
-            notas: form.notas,
-            idempotencyKey,
-          }),
+          body: JSON.stringify(cuerpoPedido("transferencia", idempotencyKey)),
         });
         const data = await r.json().catch(() => ({}));
         setEnviando(false);
         if (r.ok && data?.ok) {
           trackEvent("checkout_pedido_creado", { total });
           pwClearIdempotency();
+          pwOlvidarMpPedido();
           vaciar();
-          setPedidoOk({ pedidoId: data.pedidoId || null, waUrl, ok: true });
+          // El pedido ya quedó registrado. Con datos bancarios, el WhatsApp es para
+          // mandar el comprobante; sin datos, para pedirlos (el mail no los trae).
+          // Siempre con el número de pedido: antes era el pedido entero de nuevo y
+          // se leía como un pedido nuevo.
+          const monto = Number(data.aCobrar) > 0 ? ` por $${Math.round(Number(data.aCobrar)).toLocaleString("es-AR")}` : "";
+          const textoWa = hayDatosTransferencia
+            ? `Hola! Te paso el comprobante del pedido ${data.pedidoId || ""}`
+            : `Hola! Hice el pedido ${data.pedidoId || ""}${monto}. ¿Me pasás los datos para transferir?`;
+          const waPedido = `https://wa.me/${wa}?text=${encodeURIComponent(textoWa)}`;
+          setPedidoOk({ pedidoId: data.pedidoId || null, waUrl: waPedido, ok: true });
           window.scrollTo(0, 0);
           return;
         }
-        // Stock insuficiente: NO mandar a WhatsApp a ciegas (así se sobrevendió
-        // una vez: el backend rechazó el pedido, la clienta coordinó igual por
-        // WhatsApp y la dueña nunca supo que no había stock). Se le dice qué
-        // faltó, se le corrige el carrito y se le pide reconfirmar.
-        if (data?.error === "stock_insuficiente" && Array.isArray(data.faltantes)) {
-          trackEvent("checkout_stock_insuficiente", { total });
-          const detalles: string[] = [];
-          for (const f of data.faltantes as Array<{ sku: string; disponible: number }>) {
-            const disp = Math.max(0, Number(f.disponible) || 0);
-            for (const it of items.filter((i) => i.sku === f.sku)) {
-              detalles.push(
-                disp === 0
-                  ? `${it.nombre}: se agotó`
-                  : `${it.nombre}: queda ${disp} (pediste ${it.cantidad})`,
-              );
-              cambiarCantidad(it.lineId, disp);
-            }
-          }
-          setError(
-            `Se quedó sin stock mientras comprabas — ${detalles.join("; ")}. ` +
-              `Ya ajustamos tu carrito: revisalo y confirmá de nuevo.`,
-          );
-          window.scrollTo(0, 0);
-          return;
-        }
+        // Stock, precios o envío: se le explica al cliente y se corrige el carrito.
+        if (manejarRechazoPedido(data)) return;
         // Otro error (red, backend caído): no perder la venta → igual ofrecemos
         // coordinar por WhatsApp, pero con el aviso de que NO quedó registrado.
         trackEvent("checkout_pedido_error", { total });
@@ -807,19 +983,63 @@ export function CheckoutClient({ config }: { config: ConfigWeb }) {
       return;
     }
 
-    // Crear preference MP server-side con los items + datos cliente
-    // IMPORTANTE: enviar precioUnitTn (no precioUnit) para que MP cobre el precio
-    // que cubre la comisión + cuotas SI.
+    // Paso 1: crear el PEDIDO. Reserva el stock, valida precio y envío en el
+    // servidor, y guarda dirección, envío y medidas. Antes un pago de MP no creaba
+    // ningún pedido: no reservaba stock (dos clientes podían pagar la última
+    // unidad) y la dueña no tenía ni a dónde despacharlo.
+    let pedido: { pedidoId: string; aCobrar: number; envioCosto: number; items: ItemPedido[] };
+    const idemMP = pwIdempotencyKey(firmaPedido("mp"));
+    try {
+      const rp = await fetch("/api/pedidos/crear", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify(cuerpoPedido("mp", idemMP)),
+      });
+      const dp = await rp.json().catch(() => ({}));
+      if (!rp.ok || !dp?.ok) {
+        setEnviando(false);
+        if (manejarRechazoPedido(dp)) return;
+        trackEvent("checkout_pedido_error", { total: totalConEnvio, metodo: "mp" });
+        setError("No pudimos iniciar el pago. Probá de nuevo en un momento, o elegí pagar por transferencia.");
+        return;
+      }
+      if (dp.yaPagado) {
+        setEnviando(false);
+        pwClearIdempotency();
+        pwOlvidarMpPedido();
+        vaciar();
+        setError("Este pedido ya está pagado ✓ Te mandamos la confirmación por mail.");
+        return;
+      }
+      // Sin monto o sin ítems (un backend viejo, o una respuesta rota) no se sigue:
+      // abrir el pago con datos incompletos cobraría cualquier cosa.
+      if (!Array.isArray(dp.items) || !(Number(dp.aCobrar) > 0)) {
+        setEnviando(false);
+        setError("No pudimos iniciar el pago. Recargá la página e intentá de nuevo, o elegí pagar por transferencia.");
+        return;
+      }
+      pedido = dp;
+      pwGuardarMpPedido(dp.pedidoId, idemMP);
+    } catch {
+      setEnviando(false);
+      setError("Error de red. Verificá tu conexión e intentá de nuevo.");
+      return;
+    }
+
+    // Paso 2: la preference de MP, con los precios validados por el servidor y el
+    // envío (que antes no estaba: con dinero en cuenta se cobraba sin envío).
     try {
       const r = await fetch("/api/mp/create-preference", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({
-          items: items.map((it) => ({
+          pedidoId: pedido.pedidoId,
+          envioCosto: pedido.envioCosto,
+          items: pedido.items.map((it) => ({
             sku: it.sku,
             nombre: it.nombre,
             cantidad: it.cantidad,
-            precioUnit: it.precioUnitTn || it.precioUnit,
+            precioUnit: it.precioUnit,
             variante: it.variante,
           })),
           cliente: {
@@ -855,7 +1075,10 @@ export function CheckoutClient({ config }: { config: ConfigWeb }) {
       setExternalRefSnapshot((data.externalReference as string) || null);
       // Congelar el monto que vio el Brick. NUNCA leer totalConEnvio en el JSX
       // del Brick — esa ref fluctúa con CP/envío y dispara remounts mid-flight.
-      setAmountSnapshot(totalConEnvio);
+      // Es el monto del PEDIDO (productos + envío, calculado por el servidor): el
+      // webhook lo compara con lo cobrado.
+      setAmountSnapshot(pedido.aCobrar);
+      setEnvioPedidoMP(pedido.envioCosto);
       setPreferenceId(data.preferenceId as string);
     } catch {
       setEnviando(false);
@@ -873,13 +1096,14 @@ export function CheckoutClient({ config }: { config: ConfigWeb }) {
         </h1>
         {pedidoOk.ok ? (
           <p className="text-ink/70 mb-2">
-            Te enviamos un email con los datos para transferir.
+            {hayDatosTransferencia ? "Te enviamos un email con los datos para transferir." : null}
             {pedidoOk.pedidoId ? (
               <>
                 {" "}
                 Tu pedido <b className="text-burgundy">{pedidoOk.pedidoId}</b> queda reservado.
               </>
             ) : null}
+            {hayDatosTransferencia ? null : " Escribinos por WhatsApp y te pasamos los datos para transferir."}
           </p>
         ) : (
           <p className="text-ink/70 mb-2">
@@ -888,7 +1112,7 @@ export function CheckoutClient({ config }: { config: ConfigWeb }) {
           </p>
         )}
         <p className="text-ink/60 text-sm mb-8">
-          {pedidoOk.ok
+          {pedidoOk.ok && hayDatosTransferencia
             ? "También podés mandarnos el comprobante directo por WhatsApp:"
             : "Tocá el botón para abrir el chat con nosotros:"}
         </p>
@@ -917,7 +1141,26 @@ export function CheckoutClient({ config }: { config: ConfigWeb }) {
     );
   }
 
-  if (items.length === 0) {
+  // Con el pago de MP abierto se sigue mostrando el checkout aunque el carrito se
+  // vacíe (otra pestaña): desmontarlo cortaría el pago a la mitad. El monto ya está
+  // fijado en el pedido.
+  if (items.length === 0 && !(form.metodoPago === "mp" && preferenceId)) {
+    // Se agotó todo mientras compraba: mostrar el aviso. Antes la pantalla quedaba
+    // en blanco y el cliente no sabía qué había pasado.
+    if (error) {
+      return (
+        <div className="max-w-xl mx-auto px-6 sm:px-10 py-16 text-center">
+          <div className="text-5xl mb-4">😕</div>
+          <p className="text-burgundy mb-6 whitespace-pre-wrap">{error}</p>
+          <Link
+            href="/productos"
+            className="inline-flex items-center justify-center gap-2 bg-burgundy hover:bg-burgundy-dark text-cream-light font-semibold py-3 px-6 rounded-lg transition-colors"
+          >
+            Ver otros productos
+          </Link>
+        </div>
+      );
+    }
     return null; // redirección ya en marcha
   }
 
@@ -934,6 +1177,12 @@ export function CheckoutClient({ config }: { config: ConfigWeb }) {
 
       <form onSubmit={onSubmit} className="grid lg:grid-cols-[1fr,360px] gap-8">
         <div className="space-y-8">
+          {brickMontado && (
+            <div className="rounded-lg bg-cream-light border border-burgundy/15 p-3 text-sm text-ink/70">
+              Para cambiar tus datos o la entrega, tocá <strong>Editar datos</strong> en el pago.
+            </div>
+          )}
+          <fieldset disabled={brickMontado} className="space-y-8 min-w-0 disabled:opacity-60">
           {/* Datos del cliente */}
           <section className="border border-burgundy/10 rounded-xl bg-cream/30 p-5 sm:p-6">
             <h2 className="font-heading text-xl text-burgundy mb-4">Tus datos</h2>
@@ -989,7 +1238,7 @@ export function CheckoutClient({ config }: { config: ConfigWeb }) {
                     titulo="Envío a domicilio"
                     descripcion={
                       cotizacion.domicilio
-                        ? `Correo Argentino — Llega en ${cotizacion.domicilio.plazoMinDias}-${cotizacion.domicilio.plazoMaxDias} días hábiles.`
+                        ? `Correo Argentino — Llega en ${cotizacion.domicilio.plazoMinDias}-${cotizacion.domicilio.plazoMaxDias} días hábiles.${cotizacionEstimada ? " Costo estimado: puede variar." : ""}`
                         : "Correo Argentino — Ingresá el CP para cotizar."
                     }
                     precio={cotizacion.domicilio?.precio ?? null}
@@ -1001,7 +1250,7 @@ export function CheckoutClient({ config }: { config: ConfigWeb }) {
                     titulo="Retiro en sucursal de Correo Argentino"
                     descripcion={
                       cotizacion.sucursal
-                        ? `Más económico que domicilio. Llega en ${cotizacion.sucursal.plazoMinDias}-${cotizacion.sucursal.plazoMaxDias} días hábiles.`
+                        ? `Más económico que domicilio. Llega en ${cotizacion.sucursal.plazoMinDias}-${cotizacion.sucursal.plazoMaxDias} días hábiles.${cotizacionEstimada ? " Costo estimado: puede variar." : ""}`
                         : "Más económico que domicilio. Ingresá el CP para cotizar."
                     }
                     precio={cotizacion.sucursal?.precio ?? null}
@@ -1030,8 +1279,15 @@ export function CheckoutClient({ config }: { config: ConfigWeb }) {
                   </div>
                 )}
                 {!cargandoCotizacion && errorCotizacion && (
-                  <div className="text-burgundy bg-rose/10 border border-rose/30 rounded p-2">
-                    {errorCotizacion}
+                  <div className="text-burgundy bg-rose/10 border border-rose/30 rounded p-2 flex items-center justify-between gap-3">
+                    <span>{errorCotizacion}</span>
+                    <button
+                      type="button"
+                      onClick={() => setReintentoCotizacion((n) => n + 1)}
+                      className="shrink-0 text-xs underline hover:text-gold"
+                    >
+                      Reintentar
+                    </button>
                   </div>
                 )}
                 {!cargandoCotizacion && !errorCotizacion && !cotizacion.domicilio && !cotizacion.sucursal && (
@@ -1086,6 +1342,7 @@ export function CheckoutClient({ config }: { config: ConfigWeb }) {
               />
             </Campo>
           </section>
+          </fieldset>
 
           {/* Selector "¿Cómo querés pagar?" + Pago */}
           <section className="border border-burgundy/10 rounded-xl bg-cream/30 p-5 sm:p-6">
@@ -1146,7 +1403,9 @@ export function CheckoutClient({ config }: { config: ConfigWeb }) {
                         Transferencia bancaria o efectivo en showroom
                       </div>
                       <div className="text-sm text-ink/70 mt-0.5">
-                        Coordinamos por WhatsApp. Te pasamos CBU y reservamos el pedido.
+                        {hayDatosTransferencia
+                          ? "Te guardamos el pedido y te mandamos por mail los datos para transferir."
+                          : "Te guardamos el pedido y coordinamos el pago por WhatsApp."}
                       </div>
                     </div>
                     <div className="text-right shrink-0">
@@ -1158,8 +1417,8 @@ export function CheckoutClient({ config }: { config: ConfigWeb }) {
               </div>
             ) : (
               <p className="text-sm text-ink/70 mb-4">
-                Pagá con tarjeta de crédito, débito, transferencia o efectivo (Rapipago / Pago Fácil) —
-                todo a través de Mercado Pago. <strong>3 cuotas sin interés disponibles.</strong>
+                Pagá con tarjeta de crédito, débito o dinero en cuenta de Mercado Pago.{" "}
+                <strong>3 cuotas sin interés disponibles.</strong>
               </p>
             )}
 
@@ -1248,8 +1507,17 @@ export function CheckoutClient({ config }: { config: ConfigWeb }) {
             {/* Branch WhatsApp seleccionado: aviso pre-submit */}
             {form.metodoPago === "whatsapp" && (
               <div className="mt-4 rounded-lg bg-cream-light border border-burgundy/15 p-4 text-sm text-ink/70">
-                Al tocar <strong>Confirmar</strong> abajo, se abre WhatsApp con tu pedido pre-armado.
-                Coordinás transferencia o entrega con Mora/Lara directamente.
+                {hayDatosTransferencia ? (
+                  <>
+                    Al tocar <strong>Confirmar pedido</strong>, te guardamos los productos y te mandamos por mail
+                    los datos para transferir. Después, si querés, nos mandás el comprobante por WhatsApp.
+                  </>
+                ) : (
+                  <>
+                    Al tocar <strong>Coordinar por WhatsApp</strong>, te guardamos los productos y por WhatsApp te
+                    pasamos los datos para transferir.
+                  </>
+                )}
               </div>
             )}
           </section>
@@ -1298,7 +1566,13 @@ export function CheckoutClient({ config }: { config: ConfigWeb }) {
               <div className="flex justify-between">
                 <dt className="text-ink/70">Subtotal</dt>
                 <dd className="font-semibold text-ink">
-                  {fmtMonto(form.metodoPago === "mp" ? totalTn : total)}
+                  {fmtMonto(
+                    brickMontado && amountSnapshot !== null
+                      ? amountSnapshot - envioPedidoMP
+                      : form.metodoPago === "mp"
+                        ? totalTn
+                        : total,
+                  )}
                 </dd>
               </div>
               <div className="flex justify-between">
@@ -1306,11 +1580,13 @@ export function CheckoutClient({ config }: { config: ConfigWeb }) {
                 <dd className={costoEnvio > 0 ? "font-semibold text-ink" : "text-ink/60 italic"}>
                   {form.envio === "showroom"
                     ? "Sin costo"
-                    : cargandoCotizacion
-                      ? "Cotizando…"
-                      : costoEnvio > 0
-                        ? fmtMonto(costoEnvio)
-                        : "Ingresá CP"}
+                    : brickMontado && amountSnapshot !== null
+                      ? fmtMonto(envioPedidoMP)
+                      : cargandoCotizacion
+                        ? "Cotizando…"
+                        : costoEnvio > 0
+                          ? fmtMonto(costoEnvio)
+                          : "Ingresá CP"}
                 </dd>
               </div>
               {/* Nota del método elegido (sin línea de "descuento" para no
@@ -1334,7 +1610,11 @@ export function CheckoutClient({ config }: { config: ConfigWeb }) {
             <hr className="my-4 border-burgundy/10" />
             <div className="flex justify-between items-baseline mb-4">
               <span className="font-heading text-lg text-burgundy">Total</span>
-              <span className="font-heading text-2xl text-burgundy">{fmtMonto(totalConEnvio)}</span>
+              {/* Con el pago abierto, el total es el monto FIJADO del pedido: es lo
+                  que se va a cobrar, aunque algo del carrito cambie en otra pestaña. */}
+              <span className="font-heading text-2xl text-burgundy">
+                {fmtMonto(brickMontado && amountSnapshot !== null ? amountSnapshot : totalConEnvio)}
+              </span>
             </div>
 
             {/* CTA principal: se oculta cuando ya se montó el Payment Brick
@@ -1343,7 +1623,7 @@ export function CheckoutClient({ config }: { config: ConfigWeb }) {
             {!(form.metodoPago === "mp" && preferenceId) && (
               <button
                 type="submit"
-                disabled={enviando}
+                disabled={enviando || !envioListo}
                 className={`inline-flex items-center justify-center gap-2 w-full text-center font-semibold py-3 px-6 rounded-lg transition-colors text-cream-light disabled:opacity-60 disabled:cursor-not-allowed ${
                   form.metodoPago === "whatsapp"
                     ? "bg-emerald-700 hover:bg-emerald-800"
@@ -1353,14 +1633,22 @@ export function CheckoutClient({ config }: { config: ConfigWeb }) {
                 {enviando ? (
                   <>
                     <Loader2 size={18} className="animate-spin" />
-                    {form.metodoPago === "whatsapp" ? "Abriendo WhatsApp…" : "Creando pago…"}
+                    {form.metodoPago === "whatsapp" ? "Registrando pedido…" : "Creando pago…"}
                   </>
                 ) : form.metodoPago === "whatsapp" ? (
-                  <>Coordinar por WhatsApp {fmtMonto(totalConEnvio)}</>
+                  hayDatosTransferencia ? (
+                    <>Confirmar pedido {fmtMonto(totalConEnvio)}</>
+                  ) : (
+                    <>Coordinar por WhatsApp {fmtMonto(totalConEnvio)}</>
+                  )
                 ) : (
                   <>Continuar al pago {fmtMonto(totalConEnvio)}</>
                 )}
               </button>
+            )}
+
+            {!brickMontado && motivoEnvio && (
+              <div className="text-center text-xs text-ink/60 mt-2">{motivoEnvio}</div>
             )}
 
             {/* Cuando el Brick está montado, mostrar un nota recordatoria abajo
